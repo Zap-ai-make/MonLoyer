@@ -1,44 +1,69 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Trash2 } from 'lucide-react'
 import dataService from '../services/dataService'
+import receiptService from '../services/receiptService'
+import archiveService from '../services/archiveService'
+import ValidationMessage from '../components/ValidationMessage'
+import UniversalModal from '../components/UniversalModal'
+import PaiementTable from '../components/PaiementTable'
+import PaiementFilters from '../components/PaiementFilters'
+import PaiementStats from '../components/PaiementStats'
+import ImpayesTable from '../components/ImpayesTable'
+import ReversementsTable from '../components/ReversementsTable'
+import { useNotification } from '../contexts/NotificationContext'
+import { MOIS, MODES_PAIEMENT, STATUT_COLORS, STATUT_LABELS } from '../constants/paiements'
+import { formatCurrency } from '../utils/formatters'
+import {
+  validatePaiementForm,
+  createGroupedPayments,
+  filterPaiementsByPeriod,
+  calculateResumePaiements,
+  getLocatairesImpayes as calculateLocatairesImpayes,
+  getMoisDejaPayes,
+  isMoisDisabled
+} from '../utils/paiementUtils'
+import { BUTTON_PRIMARY_GREEN, BUTTON_SECONDARY, BUTTON_DANGER, ICON_BUTTON_BASE } from '../constants/cssClasses'
+
+// Alias pour cohérence avec le design de cette page
+const BUTTON_PRIMARY = BUTTON_PRIMARY_GREEN
 
 function Paiements() {
+  const navigate = useNavigate()
+  const notification = useNotification()
   const [paiements, setPaiements] = useState([])
   const [locataires, setLocataires] = useState([])
   const [biens, setBiens] = useState([])
   const [showForm, setShowForm] = useState(false)
   const [editingPaiement, setEditingPaiement] = useState(null)
-  
+  const [deleteModal, setDeleteModal] = useState({ show: false, paiement: null })
+  const [confirmRemittanceModal, setConfirmRemittanceModal] = useState({ show: false, proprietaire: null, periode: null, paiements: [] })
+  const [confirmArchivesModal, setConfirmArchivesModal] = useState(false)
+  const [validationErrors, setValidationErrors] = useState([])
+
   // Filtres de période - par défaut mois/année courants
   const currentDate = new Date()
   const [filtreAnnee, setFiltreAnnee] = useState(currentDate.getFullYear())
   const [filtreMois, setFiltreMois] = useState(currentDate.getMonth() + 1) // getMonth() retourne 0-11
   const [activeTab, setActiveTab] = useState('paiements') // 'paiements', 'impayes' ou 'reversements'
-  
+
   const [formData, setFormData] = useState({
     locataireId: '',
-    mois: '',
+    moisSelectionnes: [currentDate.getMonth()], // Mois courant présélectionné
     annee: new Date().getFullYear(),
     montantDu: '',
     montantPaye: '',
-    datePaiement: '',
+    datePaiement: new Date().toISOString().split('T')[0], // Date du jour
     modePaiement: 'especes',
+    numeroCheque: '',
+    numeroMobileMoney: '',
     remarques: ''
   })
 
-  const mois = [
-    'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
-    'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
-  ]
-
-  const modesPaiement = [
-    { value: 'especes', label: 'Espèces' },
-    { value: 'virement', label: 'Virement bancaire' },
-    { value: 'mobile_money', label: 'Mobile Money' },
-    { value: 'cheque', label: 'Chèque' }
-  ]
-
   useEffect(() => {
     loadData()
+    // Vérifier si on doit archiver automatiquement
+    archiveService.checkAndArchiveIfNeeded()
   }, [])
 
   const loadData = () => {
@@ -49,214 +74,184 @@ function Paiements() {
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    
-    if (!formData.locataireId || !formData.mois || !formData.montantDu) {
-      alert('Locataire, mois et montant dû sont obligatoires')
+
+    // Validation du formulaire avec vérification des doublons
+    const validation = validatePaiementForm(formData, paiements)
+    if (!validation.isValid) {
+      setValidationErrors(validation.errors)
       return
     }
 
-    const montantDu = parseFloat(formData.montantDu) || 0
-    const montantPaye = parseFloat(formData.montantPaye) || 0
-    
-    const paiementData = {
-      ...formData,
-      montantDu,
-      montantPaye,
-      montantRestant: montantDu - montantPaye,
-      statut: montantPaye >= montantDu ? 'paye' : montantPaye > 0 ? 'partiel' : 'impaye'
-    }
+    // Réinitialiser les erreurs
+    setValidationErrors([])
 
-    if (editingPaiement) {
-      dataService.updatePaiement(editingPaiement.id, paiementData)
-    } else {
-      dataService.addPaiement(paiementData)
-    }
+    try {
+      // Créer les paiements groupés
+      const paiementsToCreate = createGroupedPayments(formData, MOIS)
+      const paiementsCreated = []
 
-    resetForm()
-    loadData()
+      // Enregistrer chaque paiement
+      paiementsToCreate.forEach(paiementData => {
+        if (editingPaiement && formData.moisSelectionnes.length === 1) {
+          // Mode édition pour un seul mois
+          const updated = dataService.updatePaiement(editingPaiement.id, paiementData)
+          if (updated) {
+            paiementsCreated.push(updated)
+          }
+        } else {
+          // Nouveau paiement ou paiement multiple
+          const created = dataService.addPaiement(paiementData)
+          if (created) {
+            paiementsCreated.push(created)
+          }
+        }
+      })
+
+      if (paiementsCreated.length === 0) {
+        throw new Error('Aucun paiement n\'a pu être créé')
+      }
+
+      notification.success(`Paiement enregistré avec succès pour ${paiementsCreated.length} mois !`)
+      resetForm()
+      loadData()
+    } catch (error) {
+      setValidationErrors([{
+        field: 'general',
+        message: `Erreur lors de l'enregistrement: ${error.message}`
+      }])
+    }
   }
 
   const resetForm = () => {
+    const now = new Date()
     setFormData({
       locataireId: '',
-      mois: '',
-      annee: new Date().getFullYear(),
+      moisSelectionnes: [now.getMonth()], // Mois courant
+      annee: now.getFullYear(),
       montantDu: '',
       montantPaye: '',
-      datePaiement: '',
+      datePaiement: now.toISOString().split('T')[0], // Date du jour
       modePaiement: 'especes',
+      numeroCheque: '',
+      numeroMobileMoney: '',
       remarques: ''
     })
     setEditingPaiement(null)
     setShowForm(false)
+    setValidationErrors([])
   }
 
-  const handleEdit = (paiement) => {
+  const handleEdit = useCallback((paiement) => {
+    // Trouver l'index du mois pour la compatibilité
+    const moisIndex = MOIS.findIndex(m => m === paiement.mois)
+
     setFormData({
       ...paiement,
-      datePaiement: paiement.datePaiement ? paiement.datePaiement.split('T')[0] : ''
+      moisSelectionnes: moisIndex >= 0 ? [moisIndex] : [],
+      datePaiement: paiement.datePaiement ? paiement.datePaiement.split('T')[0] : '',
+      numeroCheque: paiement.numeroCheque || '',
+      numeroMobileMoney: paiement.numeroMobileMoney || ''
     })
     setEditingPaiement(paiement)
     setShowForm(true)
-  }
+    setValidationErrors([])
+  }, [])
 
-  const handleDelete = (paiement) => {
-    const locataire = getLocataireInfo(paiement.locataireId)
-    if (confirm(`Êtes-vous sûr de vouloir supprimer le paiement de ${locataire.nom} pour ${paiement.mois} ${paiement.annee} ?`)) {
-      dataService.deletePaiement(paiement.id)
+  // Fonction pour gérer la sélection/désélection des mois
+  const handleMoisToggle = useCallback((moisIndex) => {
+    setFormData(prev => {
+      // Vérifier si le mois est désactivé
+      const moisStatus = isMoisDisabled(moisIndex, prev.annee, prev.locataireId, paiements, locataires)
+      if (moisStatus.disabled) {
+        return prev // Ne rien faire si le mois est désactivé
+      }
+
+      const nouveauxMois = prev.moisSelectionnes.includes(moisIndex)
+        ? prev.moisSelectionnes.filter(m => m !== moisIndex)
+        : [...prev.moisSelectionnes, moisIndex].sort((a, b) => a - b)
+
+      // Recalculer le montant dû total si un locataire est sélectionné
+      let nouveauMontantDu = prev.montantDu
+      if (prev.locataireId && nouveauxMois.length > 0) {
+        const locataire = locataires.find(l => l.id === prev.locataireId)
+        if (locataire && locataire.montantLoyer) {
+          nouveauMontantDu = (parseFloat(locataire.montantLoyer) * nouveauxMois.length).toString()
+        }
+      }
+
+      return {
+        ...prev,
+        moisSelectionnes: nouveauxMois,
+        montantDu: nouveauMontantDu
+      }
+    })
+  }, [locataires, paiements])
+
+  const handleDelete = useCallback((paiement) => {
+    setDeleteModal({ show: true, paiement })
+  }, [])
+
+  const confirmDelete = useCallback(() => {
+    if (deleteModal.paiement) {
+      dataService.deletePaiement(deleteModal.paiement.id)
       loadData()
+      setDeleteModal({ show: false, paiement: null })
     }
-  }
+  }, [deleteModal.paiement])
+
+  const cancelDelete = useCallback(() => {
+    setDeleteModal({ show: false, paiement: null })
+  }, [])
 
   const getLocataireInfo = (locataireId) => {
     const locataire = locataires.find(l => l.id === locataireId)
     if (!locataire) return { nom: 'Locataire inconnu', bien: 'Bien inconnu' }
-    
-    // Utiliser courId au lieu de bienId pour la compatibilité avec le nouveau système
+
     const bien = biens.find(b => b.id === (locataire.courId || locataire.bienId))
     const bienNom = bien ? (bien.nomCour || `${bien.quartier} ${bien.ville}`) : 'Bien inconnu'
-    
+
     return {
       nom: `${locataire.prenom} ${locataire.nom}`,
       bien: bienNom
     }
   }
 
-  // Fonction pour obtenir les informations du bien pour un locataire (pour l'onglet impayés)
-  const getBienInfoForLocataire = (locataire) => {
-    if (!locataire.courId) return 'Aucune cour assignée'
-    
-    const cour = biens.find(b => b.id === locataire.courId)
-    if (!cour) return 'Cour inconnue'
-    
-    const nomCour = cour.nomCour || `${cour.quartier} ${cour.ville}`
-    const typeLibelle = cour.type === 'cour_commune' ? 'Cour commune' : 
-                       cour.type === 'magasin' ? 'Magasin' : 'Villa'
-    
-    let info = `${nomCour} - ${typeLibelle}`
-    
-    if (cour.type === 'cour_commune' && locataire.numeroMaison) {
-      info += ` - Maison n°${locataire.numeroMaison}`
-    }
-    
-    return info
-  }
+  // Optimisation: Mémoriser les paiements filtrés
+  const paiementsFiltres = useMemo(() =>
+    filterPaiementsByPeriod(paiements, filtreMois, filtreAnnee, MOIS),
+    [paiements, filtreMois, filtreAnnee]
+  )
 
-  const getStatutBadge = (statut, montantPaye, montantDu) => {
-    const status = statut || (montantPaye >= montantDu ? 'paye' : montantPaye > 0 ? 'partiel' : 'impaye')
-    
-    const colors = {
-      'paye': 'bg-green-100 text-green-800',
-      'partiel': 'bg-yellow-100 text-yellow-800',
-      'impaye': 'bg-red-100 text-red-800'
-    }
-    
-    const labels = {
-      'paye': 'Payé',
-      'partiel': 'Partiel',
-      'impaye': 'Impayé'
-    }
-    
-    return {
-      color: colors[status] || colors.impaye,
-      label: labels[status] || 'Impayé'
-    }
-  }
+  // Optimisation: Mémoriser le résumé des paiements
+  const resume = useMemo(() =>
+    calculateResumePaiements(paiementsFiltres, locataires),
+    [paiementsFiltres, locataires]
+  )
 
-  // Filtrer les paiements par période
-  const getPaiementsFiltres = () => {
-    return paiements.filter(paiement => {
-      // Convertir le nom du mois en numéro si c'est une chaîne
-      let paiementMois = paiement.mois
-      if (typeof paiementMois === 'string') {
-        paiementMois = mois.indexOf(paiement.mois) + 1
-      } else {
-        paiementMois = parseInt(paiementMois)
-      }
-      const paiementAnnee = parseInt(paiement.annee)
-      return paiementMois === filtreMois && paiementAnnee === filtreAnnee
-    })
-  }
+  // Optimisation: Mémoriser les locataires impayés
+  const locatairesImpayes = useMemo(() =>
+    calculateLocatairesImpayes(paiementsFiltres, locataires),
+    [paiementsFiltres, locataires]
+  )
 
-  // Calculer le total attendu basé sur les maisons occupées pour la période
-  const getTotalAttendu = () => {
-    let totalAttendu = 0
-    
-    locataires.forEach(locataire => {
-      // Seulement les locataires actifs avec un loyer défini
-      if (locataire.statut === 'actif' && locataire.montantLoyer && locataire.courId) {
-        const montant = parseFloat(locataire.montantLoyer) || 0
-        totalAttendu += montant
-      }
-    })
-    
-    return totalAttendu
-  }
+  // Fonction legacy pour compatibilité (sera utilisée dans les composants non refactorisés)
+  const getPaiementsFiltres = useCallback(() => paiementsFiltres, [paiementsFiltres])
+  const getResumePaiements = useCallback(() => resume, [resume])
+  const getLocatairesImpayes = useCallback(() => locatairesImpayes, [locatairesImpayes])
 
-  // Calculer les totaux pour la période sélectionnée
-  const getResumePaiements = () => {
-    const paiementsFiltres = getPaiementsFiltres()
-    const totalAttendu = getTotalAttendu()
-    
-    let totalEncaisse = 0
-    
-    paiementsFiltres.forEach(p => {
-      totalEncaisse += p.montantPaye || 0
-    })
-    
-    const totalImpaye = totalAttendu - totalEncaisse
-
-    return { 
-      totalAttendu, 
-      totalEncaisse, 
-      totalImpaye: Math.max(0, totalImpaye) // Pas de montant négatif
-    }
-  }
-
-  // Obtenir la liste des locataires impayés pour la période
-  const getLocatairesImpayes = () => {
-    const paiementsFiltres = getPaiementsFiltres()
-    
-    return locataires.filter(locataire => {
-      // Seulement les locataires actifs avec un loyer défini
-      if (locataire.statut !== 'actif' || !locataire.montantLoyer || !locataire.courId) {
-        return false
-      }
-      
-      // Vérifier s'il y a un paiement complet pour ce locataire pour la période
-      const paiementLocataire = paiementsFiltres.find(p => p.locataireId === locataire.id)
-      
-      if (!paiementLocataire) {
-        return true // Aucun paiement = impayé
-      }
-      
-      // Vérifier si le paiement est complet
-      const montantDu = parseFloat(locataire.montantLoyer) || 0
-      const montantPaye = parseFloat(paiementLocataire.montantPaye) || 0
-      
-      return montantPaye < montantDu // Paiement partiel ou nul = impayé
-    }).map(locataire => {
-      // Ajouter les informations de paiement
-      const paiementLocataire = paiementsFiltres.find(p => p.locataireId === locataire.id)
-      const montantDu = parseFloat(locataire.montantLoyer) || 0
-      const montantPaye = paiementLocataire ? parseFloat(paiementLocataire.montantPaye) || 0 : 0
-      const montantRestant = montantDu - montantPaye
-      
-      return {
-        ...locataire,
-        montantDu,
-        montantPaye,
-        montantRestant,
-        statut: montantPaye === 0 ? 'impaye' : 'partiel'
-      }
-    })
-  }
-
-  // Calculer les reversements pour chaque propriétaire
-  const getReversementsProprietaires = () => {
+  // Calculer les reversements pour chaque propriétaire - Mémorisé pour performance
+  const reversementsProprietaires = useMemo(() => {
     const paiementsFiltres = getPaiementsFiltres()
     const proprietaires = dataService.getProprietaires()
-    
+    const periode = `${MOIS[filtreMois - 1]} ${filtreAnnee}`
+
+    // Récupérer les reversements déjà archivés pour cette période
+    const archivedRemittances = archiveService.getArchivedRemittances()
+    const archivedForCurrentPeriod = archivedRemittances.filter(archive =>
+      archive.periode === periode
+    )
+
+
     return proprietaires.map(proprietaire => {
       // Trouver tous les biens de ce propriétaire
       const biensProprietaire = biens.filter(bien => bien.proprietaireId === proprietaire.id)
@@ -276,12 +271,17 @@ function Paiements() {
           const montantDu = parseFloat(locataire.montantLoyer) || 0
           totalAttendu += montantDu
           
-          // Trouver le paiement de ce locataire pour la période
-          const paiement = paiementsFiltres.find(p => p.locataireId === locataire.id)
-          const montantPaye = paiement ? (parseFloat(paiement.montantPaye) || 0) : 0
+          // Calculer le montant total payé par ce locataire pour cette période
+          const paiementsLocataire = paiementsFiltres.filter(p => p.locataireId === locataire.id)
+          let montantTotalPaye = 0
+
+          paiementsLocataire.forEach(paiement => {
+            // Compter le montantPaye de chaque paiement (déjà la portion correcte pour le mois)
+            montantTotalPaye += parseFloat(paiement.montantPaye) || 0
+          })
           
-          montantAReversser += montantPaye
-          montantImpaye += (montantDu - montantPaye)
+          montantAReversser += montantTotalPaye
+          montantImpaye += (montantDu - montantTotalPaye)
           
           // Ajouter aux détails si il y a du mouvement (paiement ou impayé)
           if (montantDu > 0) {
@@ -289,12 +289,23 @@ function Paiements() {
               bien: bien,
               locataire: locataire,
               montantDu,
-              montantPaye,
-              montantImpaye: montantDu - montantPaye
+              montantPaye: montantTotalPaye,
+              montantImpaye: montantDu - montantTotalPaye
             })
           }
         })
       })
+      
+      // Vérifier si ce propriétaire a déjà un reversement archivé pour cette période
+      const dejaArchive = archivedForCurrentPeriod.some(archive => 
+        archive.proprietaireId === proprietaire.id
+      )
+      
+      
+      // Si déjà archivé, ne pas afficher de montant à reverser
+      if (dejaArchive) {
+        montantAReversser = 0
+      }
       
       return {
         ...proprietaire,
@@ -305,23 +316,165 @@ function Paiements() {
         detailsBiens: detailsBiens.filter(d => d.montantDu > 0) // Seulement les biens avec des locataires
       }
     }).filter(p => p.totalAttendu > 0) // Seulement les propriétaires avec des revenus attendus
+  }, [paiementsFiltres, biens, locataires, filtreMois, filtreAnnee, getPaiementsFiltres])
+
+  // Fonction pour imprimer un reçu de paiement - Mémorisé
+  const handlePrintPaymentReceipt = useCallback((paiement) => {
+    const locataire = locataires.find(l => l.id === paiement.locataireId)
+    const bien = biens.find(b => b.id === (locataire?.courId || locataire?.bienId))
+    
+    if (locataire && bien) {
+      if (paiement.paiementMultiple) {
+        // Pour les paiements multiples, créer un reçu groupé
+        const paiementFormate = {
+          ...paiement,
+          montant: paiement.montantTotalPaye || (paiement.montantPaye * paiement.totalMoisPayes),
+          moisConcerne: paiement.moisDuGroupe?.join(', ') || `${paiement.mois} et ${paiement.totalMoisPayes - 1} autre(s) mois`,
+          modePaiement: MODES_PAIEMENT.find(m => m.value === paiement.modePaiement)?.label || paiement.modePaiement,
+          notes: paiement.remarques,
+          isPaiementMultiple: true,
+          nombreMois: paiement.totalMoisPayes,
+          montantParMois: paiement.montantPaye
+        }
+        
+        receiptService.printPaymentReceipt(paiementFormate, locataire, bien)
+      } else {
+        // Pour les paiements simples
+        const paiementFormate = {
+          ...paiement,
+          montant: paiement.montantPaye || 0,
+          moisConcerne: `${paiement.mois} ${paiement.annee}`,
+          modePaiement: MODES_PAIEMENT.find(m => m.value === paiement.modePaiement)?.label || paiement.modePaiement,
+          notes: paiement.remarques
+        }
+        
+        receiptService.printPaymentReceipt(paiementFormate, locataire, bien)
+      }
+    }
+  }, [locataires, biens])
+
+  // Fonction pour imprimer un reçu de reversement
+  const handlePrintRemittanceReceipt = (proprietaire) => {
+    const paiementsFiltres = getPaiementsFiltres()
+    
+    // Créer la liste des paiements pour ce propriétaire
+    const paiementsProprietaire = []
+    
+    proprietaire.detailsBiens.forEach(detail => {
+      if (detail.montantPaye > 0) {
+        const paiement = paiementsFiltres.find(p => p.locataireId === detail.locataire.id)
+        if (paiement) {
+          paiementsProprietaire.push({
+            ...paiement,
+            montant: detail.montantPaye,
+            locataireNom: `${detail.locataire.prenom} ${detail.locataire.nom}`,
+            bienNom: detail.bien.nomCour || `${detail.bien.quartier} ${detail.bien.ville}`
+          })
+        }
+      }
+    })
+    
+    const periode = `${MOIS[filtreMois - 1]} ${filtreAnnee}`
+    receiptService.printRemittanceReceipt(paiementsProprietaire, proprietaire, periode)
   }
 
-  const resume = getResumePaiements()
+  // Fonction pour valider et archiver un reversement
+  const handleValidateRemittance = (proprietaire) => {
+    try {
+      
+      // Vérifier si archiveService est bien importé
+      if (!archiveService) {
+        notification.error('Erreur: Service d\'archivage non disponible')
+        return
+      }
+      
+      const paiementsFiltres = getPaiementsFiltres()
+      const periode = `${MOIS[filtreMois - 1]} ${filtreAnnee}`
+      
+      
+      // Créer la liste des paiements pour ce propriétaire
+      const paiementsProprietaire = []
+      
+      proprietaire.detailsBiens.forEach(detail => {
+        if (detail.montantPaye > 0) {
+          const paiement = paiementsFiltres.find(p => p.locataireId === detail.locataire.id)
+          if (paiement) {
+            paiementsProprietaire.push({
+              ...paiement,
+              montant: detail.montantPaye,
+              locataireNom: `${detail.locataire.prenom} ${detail.locataire.nom}`,
+              bienNom: detail.bien.nomCour || `${detail.bien.quartier} ${detail.bien.ville}`
+            })
+          }
+        }
+      })
+      
+      
+      if (paiementsProprietaire.length === 0) {
+        notification.warning('Aucun paiement à reverser pour ce propriétaire.')
+        return
+      }
+
+      // Ouvrir le modal de confirmation
+      setConfirmRemittanceModal({
+        show: true,
+        proprietaire,
+        periode,
+        paiements: paiementsProprietaire
+      })
+    } catch (error) {
+      notification.error(`Erreur lors de la validation du reversement: ${error.message}`)
+    }
+  }
+
+  // Fonction confirmée après modal
+  const confirmRemittance = useCallback(() => {
+    try {
+      const { proprietaire, periode, paiements: paiementsProprietaire } = confirmRemittanceModal
+
+      // Archiver le reversement
+      const archived = archiveService.validateAndArchiveRemittance(proprietaire, periode, paiementsProprietaire)
+
+      if (!archived) {
+        notification.error('Erreur: L\'archive n\'a pas pu être créée')
+        return
+      }
+
+      // Message de succès avec notification
+      notification.success(`Reversement validé et archivé avec succès ! Montant net: ${formatCurrency(archived.montantNet)}`)
+
+      // Recharger les données pour mettre à jour l'affichage
+      loadData()
+
+      // Fermer le modal de reversement
+      setConfirmRemittanceModal({ show: false, proprietaire: null, periode: null, paiements: [] })
+
+      // Ouvrir le modal pour demander si on veut voir les archives
+      setConfirmArchivesModal(true)
+    } catch (error) {
+      notification.error(`Erreur lors de la confirmation du reversement: ${error.message}`)
+    }
+  }, [confirmRemittanceModal, loadData, navigate, notification])
 
   return (
-    <div className="space-y-6">
+    <div className="dashboard-background">
+      <div className="max-w-[1920px] mx-auto space-y-6 p-6">
       {/* En-tête */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
         <div>
           <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-gray-900">Suivi des Paiements</h1>
           <p className="text-sm md:text-base text-gray-600 mt-1">
-            {mois[filtreMois - 1]} {filtreAnnee} - Gérer les paiements de loyers
+            {MOIS[filtreMois - 1]} {filtreAnnee} - Gérer les paiements de loyers
+            {(filtreMois === currentDate.getMonth() + 1 && filtreAnnee === currentDate.getFullYear()) && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 ml-2">
+                🟢 Mois actuel
+              </span>
+            )}
           </p>
         </div>
         <button
           onClick={() => setShowForm(true)}
-          className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center"
+          className={`${BUTTON_PRIMARY} flex items-center`}
           disabled={locataires.length === 0}
         >
           <span className="mr-2">+</span>
@@ -330,94 +483,19 @@ function Paiements() {
       </div>
 
       {/* Filtres de période */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
-        <div className="flex flex-col sm:flex-row gap-4 items-center">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-700">Période:</span>
-          </div>
-          <div className="flex gap-3">
-            <select
-              value={filtreMois}
-              onChange={(e) => setFiltreMois(parseInt(e.target.value))}
-              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
-            >
-              {mois.map((moisNom, index) => (
-                <option key={index + 1} value={index + 1}>
-                  {moisNom}
-                </option>
-              ))}
-            </select>
-            <select
-              value={filtreAnnee}
-              onChange={(e) => setFiltreAnnee(parseInt(e.target.value))}
-              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
-            >
-              {Array.from({length: 5}, (_, i) => new Date().getFullYear() - 2 + i).map(annee => (
-                <option key={annee} value={annee}>
-                  {annee}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button
-            onClick={() => {
-              setFiltreMois(currentDate.getMonth() + 1)
-              setFiltreAnnee(currentDate.getFullYear())
-            }}
-            className="px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm"
-          >
-            Mois actuel
-          </button>
-        </div>
-      </div>
+      <PaiementFilters
+        filtreMois={filtreMois}
+        filtreAnnee={filtreAnnee}
+        onMoisChange={setFiltreMois}
+        onAnneeChange={setFiltreAnnee}
+        onResetToCurrentMonth={() => {
+          setFiltreMois(currentDate.getMonth() + 1)
+          setFiltreAnnee(currentDate.getFullYear())
+        }}
+      />
 
       {/* Résumé financier */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Total Attendu</p>
-              <p className="text-2xl font-bold text-blue-600">
-                {resume.totalAttendu.toLocaleString()} FCFA
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                Basé sur les maisons occupées
-              </p>
-            </div>
-            <div className="text-blue-600 text-3xl">🏠</div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Total Encaissé</p>
-              <p className="text-2xl font-bold text-green-600">
-                {resume.totalEncaisse.toLocaleString()} FCFA
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                Paiements reçus pour {mois[filtreMois - 1]}
-              </p>
-            </div>
-            <div className="text-green-600 text-3xl">💰</div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Total Impayé</p>
-              <p className="text-2xl font-bold text-red-600">
-                {resume.totalImpaye.toLocaleString()} FCFA
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                Attendu - Encaissé
-              </p>
-            </div>
-            <div className="text-red-600 text-3xl">⚠️</div>
-          </div>
-        </div>
-      </div>
+      <PaiementStats resume={resume} filtreMois={filtreMois} />
 
       {/* Message si pas de locataires */}
       {locataires.length === 0 && (
@@ -433,7 +511,7 @@ function Paiements() {
               </p>
               <div className="mt-2">
                 <button
-                  onClick={() => window.location.href = '/locataires'}
+                  onClick={() => navigate('/locataires')}
                   className="text-sm bg-yellow-100 text-yellow-800 px-3 py-1 rounded hover:bg-yellow-200"
                 >
                   Aller aux locataires
@@ -446,12 +524,14 @@ function Paiements() {
 
       {/* Formulaire */}
       {showForm && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-full overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-20 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-xl">
             <h3 className="text-lg font-medium text-gray-900 mb-4">
               {editingPaiement ? 'Modifier' : 'Nouveau'} Paiement
             </h3>
-            
+
+            <ValidationMessage errors={validationErrors} />
+
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -462,10 +542,20 @@ function Paiements() {
                   onChange={(e) => {
                     const locataireId = e.target.value
                     const locataire = locataires.find(l => l.id === locataireId)
+                    const montantMensuel = parseFloat(locataire?.montantLoyer) || 0
+
+                    // Nettoyer les mois sélectionnés en enlevant ceux qui sont désactivés
+                    const moisValides = formData.moisSelectionnes.filter(moisIndex => {
+                      const moisStatus = isMoisDisabled(moisIndex, formData.annee, locataireId, paiements, locataires)
+                      return !moisStatus.disabled
+                    })
+
+                    const montantTotal = montantMensuel * Math.max(1, moisValides.length)
                     setFormData({
-                      ...formData, 
+                      ...formData,
                       locataireId,
-                      montantDu: locataire?.montantLoyer || ''
+                      moisSelectionnes: moisValides,
+                      montantDu: montantTotal.toString()
                     })
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -483,40 +573,107 @@ function Paiements() {
                 </select>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Mois *
-                  </label>
-                  <select
-                    value={formData.mois}
-                    onChange={(e) => setFormData({...formData, mois: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                    required
+              {/* Sélection des mois */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Mois concernés *
+                  {formData.moisSelectionnes.length > 0 && (
+                    <span className="text-green-600 ml-2">
+                      ({formData.moisSelectionnes.length} mois sélectionné{formData.moisSelectionnes.length > 1 ? 's' : ''})
+                    </span>
+                  )}
+                </label>
+                <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 mb-2">
+                  {MOIS.map((moisNom, index) => {
+                    // Vérifier si le mois doit être désactivé
+                    const moisStatus = isMoisDisabled(index, formData.annee, formData.locataireId, paiements, locataires)
+
+                    return (
+                      <button
+                        key={index}
+                        type="button"
+                        onClick={() => !moisStatus.disabled && handleMoisToggle(index)}
+                        disabled={moisStatus.disabled}
+                        title={moisStatus.disabled ? moisStatus.reason : "Cliquer pour sélectionner"}
+                        className={`px-3 py-2 text-xs rounded-md border transition-colors ${
+                          moisStatus.disabled
+                            ? 'bg-gray-100 border-gray-300 text-gray-400 cursor-not-allowed opacity-60'
+                            : formData.moisSelectionnes.includes(index)
+                            ? 'bg-green-100 border-green-500 text-green-700'
+                            : 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        {moisStatus.reason.startsWith('✓') && '✓ '}{moisNom.slice(0, 3)}
+                      </button>
+                    )
+                  })}
+                </div>
+                <div className="flex gap-2 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Sélectionner les 3 prochains mois à partir du mois courant (seulement les valides)
+                      const currentMonth = new Date().getMonth()
+                      const prochainsMois = Array.from({length: 3}, (_, i) => (currentMonth + i) % 12)
+                        .filter(moisIndex => {
+                          const moisStatus = isMoisDisabled(moisIndex, formData.annee, formData.locataireId, paiements, locataires)
+                          return !moisStatus.disabled
+                        })
+
+                      setFormData(prev => ({
+                        ...prev,
+                        moisSelectionnes: prochainsMois,
+                        montantDu: prev.locataireId ?
+                          (parseFloat(locataires.find(l => l.id === prev.locataireId)?.montantLoyer || 0) * prochainsMois.length).toString() :
+                          prev.montantDu
+                      }))
+                    }}
+                    className="px-3 py-1 bg-blue-50 text-blue-600 rounded text-xs hover:bg-blue-100"
                   >
-                    <option value="">Sélectionner un mois</option>
-                    {mois.map((m, index) => (
-                      <option key={index} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
+                    3 prochains mois
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({...prev, moisSelectionnes: []}))}
+                    className="px-3 py-1 bg-gray-50 text-gray-600 rounded text-xs hover:bg-gray-100"
+                  >
+                    Effacer
+                  </button>
                 </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Année *
-                  </label>
-                  <input
-                    type="number"
-                    value={formData.annee}
-                    onChange={(e) => setFormData({...formData, annee: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                    min="2020"
-                    max="2030"
-                    required
-                  />
-                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Année *
+                </label>
+                <input
+                  type="number"
+                  value={formData.annee}
+                  onChange={(e) => {
+                    const nouvelleAnnee = parseInt(e.target.value)
+
+                    // Nettoyer les mois sélectionnés en enlevant ceux qui deviennent désactivés avec la nouvelle année
+                    const moisValides = formData.moisSelectionnes.filter(moisIndex => {
+                      const moisStatus = isMoisDisabled(moisIndex, nouvelleAnnee, formData.locataireId, paiements, locataires)
+                      return !moisStatus.disabled
+                    })
+
+                    const locataire = locataires.find(l => l.id === formData.locataireId)
+                    const montantMensuel = parseFloat(locataire?.montantLoyer) || 0
+                    const montantTotal = montantMensuel * Math.max(1, moisValides.length)
+
+                    setFormData({
+                      ...formData,
+                      annee: nouvelleAnnee,
+                      moisSelectionnes: moisValides,
+                      montantDu: montantTotal.toString()
+                    })
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  min="2020"
+                  max="2030"
+                  required
+                />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -535,14 +692,16 @@ function Paiements() {
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Montant payé (FCFA)
+                    Montant payé (FCFA) *
                   </label>
                   <input
                     type="number"
                     value={formData.montantPaye}
                     onChange={(e) => setFormData({...formData, montantPaye: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                    placeholder="0"
+                    placeholder="Entrer le montant payé"
+                    min="1"
+                    required
                   />
                 </div>
               </div>
@@ -569,7 +728,7 @@ function Paiements() {
                     onChange={(e) => setFormData({...formData, modePaiement: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
                   >
-                    {modesPaiement.map(mode => (
+                    {MODES_PAIEMENT.map(mode => (
                       <option key={mode.value} value={mode.value}>
                         {mode.label}
                       </option>
@@ -577,6 +736,40 @@ function Paiements() {
                   </select>
                 </div>
               </div>
+
+              {/* Champ numéro de chèque (conditionnel) */}
+              {formData.modePaiement === 'cheque' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Numéro de chèque *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.numeroCheque}
+                    onChange={(e) => setFormData({...formData, numeroCheque: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="Numéro du chèque"
+                    required
+                  />
+                </div>
+              )}
+
+              {/* Champ numéro Mobile Money (conditionnel) */}
+              {formData.modePaiement === 'mobile_money' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Numéro de paiement Mobile Money *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.numeroMobileMoney}
+                    onChange={(e) => setFormData({...formData, numeroMobileMoney: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="Numéro de transaction Mobile Money"
+                    required
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -591,18 +784,35 @@ function Paiements() {
                 />
               </div>
 
-              {/* Aperçu du montant restant */}
-              {formData.montantDu && (
+              {/* Aperçu du paiement */}
+              {(formData.montantDu || formData.moisSelectionnes.length > 0) && (
                 <div className="bg-gray-50 p-4 rounded-md">
+                  <h4 className="text-sm font-medium text-gray-900 mb-2">Aperçu du paiement</h4>
                   <div className="text-sm text-gray-600">
-                    <div className="flex justify-between">
-                      <span>Montant dû:</span>
-                      <span className="font-medium">{parseFloat(formData.montantDu || 0).toLocaleString()} FCFA</span>
+                    {formData.moisSelectionnes.length > 0 && (
+                      <div className="flex justify-between mb-1">
+                        <span>Mois sélectionnés:</span>
+                        <span className="font-medium">
+                          {formData.moisSelectionnes.map(i => MOIS[i].slice(0, 3)).join(', ')} ({formData.moisSelectionnes.length})
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex justify-between mb-1">
+                      <span>Montant dû total:</span>
+                      <span className="font-medium">{formatCurrency(formData.montantDu || 0)}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span>Montant payé:</span>
-                      <span className="font-medium">{parseFloat(formData.montantPaye || 0).toLocaleString()} FCFA</span>
+                    <div className="flex justify-between mb-1">
+                      <span>Montant payé total:</span>
+                      <span className="font-medium">{formatCurrency(formData.montantPaye || 0)}</span>
                     </div>
+                    {formData.moisSelectionnes.length > 1 && formData.montantPaye > 0 && (
+                      <div className="flex justify-between mb-1 text-blue-600">
+                        <span>Par mois:</span>
+                        <span className="font-medium">
+                          {formatCurrency(parseFloat(formData.montantPaye) / formData.moisSelectionnes.length)}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-between font-medium text-gray-900 border-t pt-2 mt-2">
                       <span>Montant restant:</span>
                       <span className={
@@ -610,7 +820,7 @@ function Paiements() {
                           ? 'text-red-600' 
                           : 'text-green-600'
                       }>
-                        {Math.max(0, parseFloat(formData.montantDu || 0) - parseFloat(formData.montantPaye || 0)).toLocaleString()} FCFA
+                        {formatCurrency(Math.max(0, parseFloat(formData.montantDu || 0) - parseFloat(formData.montantPaye || 0)))}
                       </span>
                     </div>
                   </div>
@@ -621,13 +831,13 @@ function Paiements() {
                 <button
                   type="button"
                   onClick={resetForm}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                  className={BUTTON_SECONDARY}
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                  className={BUTTON_PRIMARY}
                 >
                   {editingPaiement ? 'Modifier' : 'Enregistrer'}
                 </button>
@@ -670,7 +880,17 @@ function Paiements() {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              Reversements ({getReversementsProprietaires().length})
+              Reversements ({reversementsProprietaires.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('archives')}
+              className={`py-3 px-6 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'archives'
+                  ? 'border-purple-500 text-purple-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Archives 🗄️
             </button>
           </nav>
         </div>
@@ -678,316 +898,149 @@ function Paiements() {
         {/* Contenu des onglets */}
         <div>
         {activeTab === 'paiements' && (
-          <>
-            {getPaiementsFiltres().length === 0 ? (
-          <div className="text-center py-12">
-            <div className="text-gray-400 text-5xl mb-4">💰</div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
-              Aucun paiement pour {mois[filtreMois - 1]} {filtreAnnee}
-            </h3>
-            <p className="text-gray-600 mb-4">
-              Aucun paiement enregistré pour cette période. Ajoutez un paiement ou changez la période.
-            </p>
-            {locataires.length > 0 && (
-              <button
-                onClick={() => setShowForm(true)}
-                className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700"
-              >
-                Nouveau Paiement
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Locataire
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Période
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Montants
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Mode de paiement
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Statut
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {getPaiementsFiltres().map((paiement) => {
-                  const locataireInfo = getLocataireInfo(paiement.locataireId)
-                  const statut = getStatutBadge(paiement.statut, paiement.montantPaye, paiement.montantDu)
-                  
-                  return (
-                    <tr key={paiement.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">
-                          {locataireInfo.nom}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {locataireInfo.bien}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">
-                          {paiement.mois} {paiement.annee}
-                        </div>
-                        {paiement.datePaiement && (
-                          <div className="text-sm text-gray-500">
-                            Payé le {new Date(paiement.datePaiement).toLocaleDateString('fr-FR')}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
-                          Dû: {(paiement.montantDu || 0).toLocaleString()} FCFA
-                        </div>
-                        <div className="text-sm text-gray-900">
-                          Payé: {(paiement.montantPaye || 0).toLocaleString()} FCFA
-                        </div>
-                        {(paiement.montantDu - paiement.montantPaye) > 0 && (
-                          <div className="text-sm text-red-600">
-                            Restant: {((paiement.montantDu || 0) - (paiement.montantPaye || 0)).toLocaleString()} FCFA
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {modesPaiement.find(m => m.value === paiement.modePaiement)?.label || paiement.modePaiement}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statut.color}`}>
-                          {statut.label}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => handleEdit(paiement)}
-                            className="text-green-600 hover:text-green-900"
-                          >
-                            Modifier
-                          </button>
-                          <button
-                            onClick={() => handleDelete(paiement)}
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            Supprimer
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-            )}
-          </>
+          <PaiementTable
+            paiements={getPaiementsFiltres()}
+            locataires={locataires}
+            biens={biens}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            onPrintReceipt={handlePrintPaymentReceipt}
+            filtreMois={filtreMois}
+            filtreAnnee={filtreAnnee}
+          />
         )}
 
         {activeTab === 'impayes' && (
-          <>
-            {getLocatairesImpayes().length === 0 ? (
-              <div className="text-center py-12">
-                <div className="text-gray-400 text-5xl mb-4">✅</div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  Aucun impayé pour {mois[filtreMois - 1]} {filtreAnnee}
-                </h3>
-                <p className="text-gray-600 mb-4">
-                  Tous les locataires ont payé leur loyer pour cette période !
-                </p>
-              </div>
-            ) : (
-              <div className="p-6">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">
-                  Locataires impayés - {mois[filtreMois - 1]} {filtreAnnee}
-                </h3>
-                <div className="space-y-4">
-                  {getLocatairesImpayes().map((locataire) => (
-                    <div key={locataire.id} className="border border-red-200 rounded-lg p-4 bg-red-50">
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <h4 className="font-medium text-gray-900">
-                            {locataire.prenom} {locataire.nom}
-                          </h4>
-                          {locataire.telephone && (
-                            <p className="text-sm text-gray-600">📞 {locataire.telephone}</p>
-                          )}
-                          <p className="text-sm text-gray-600">
-                            🏠 {getBienInfoForLocataire(locataire)}
-                          </p>
-                          <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
-                            <div>
-                              <span className="text-gray-600">Montant dû:</span>
-                              <span className="font-medium text-blue-600 ml-1">
-                                {locataire.montantDu.toLocaleString()} FCFA
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-gray-600">Montant payé:</span>
-                              <span className="font-medium text-green-600 ml-1">
-                                {locataire.montantPaye.toLocaleString()} FCFA
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-gray-600">Reste à payer:</span>
-                              <span className="font-medium text-red-600 ml-1">
-                                {locataire.montantRestant.toLocaleString()} FCFA
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-end space-y-2">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            locataire.statut === 'impaye' 
-                              ? 'bg-red-100 text-red-800' 
-                              : 'bg-yellow-100 text-yellow-800'
-                          }`}>
-                            {locataire.statut === 'impaye' ? 'Impayé' : 'Partiel'}
-                          </span>
-                          <button
-                            onClick={() => {
-                              // Pré-remplir le formulaire avec les données du locataire
-                              setFormData({
-                                locataireId: locataire.id,
-                                mois: mois[filtreMois - 1],
-                                annee: filtreAnnee,
-                                montantDu: locataire.montantDu.toString(),
-                                montantPaye: '',
-                                datePaiement: new Date().toISOString().split('T')[0],
-                                modePaiement: 'especes',
-                                remarques: ''
-                              })
-                              setShowForm(true)
-                            }}
-                            className="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700"
-                          >
-                            Enregistrer paiement
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
+          <ImpayesTable
+            locatairesImpayes={getLocatairesImpayes()}
+            biens={biens}
+            filtreMois={filtreMois}
+            filtreAnnee={filtreAnnee}
+            onPaymentClick={(locataire) => {
+              setFormData({
+                locataireId: locataire.id,
+                moisSelectionnes: [filtreMois - 1],
+                annee: filtreAnnee,
+                montantDu: locataire.montantDu.toString(),
+                montantPaye: '',
+                datePaiement: new Date().toISOString().split('T')[0],
+                modePaiement: 'especes',
+                numeroCheque: '',
+                numeroMobileMoney: '',
+                remarques: ''
+              })
+              setShowForm(true)
+            }}
+          />
         )}
 
         {activeTab === 'reversements' && (
-          <>
-            {getReversementsProprietaires().length === 0 ? (
-              <div className="text-center py-12">
-                <div className="text-gray-400 text-5xl mb-4">🏦</div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  Aucun reversement pour {mois[filtreMois - 1]} {filtreAnnee}
-                </h3>
-                <p className="text-gray-600 mb-4">
-                  Aucun propriétaire n'a de revenus locatifs pour cette période.
-                </p>
-              </div>
-            ) : (
-              <div className="p-6">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">
-                  Reversements propriétaires - {mois[filtreMois - 1]} {filtreAnnee}
-                </h3>
-                <div className="space-y-4">
-                  {getReversementsProprietaires()
-                    .sort((a, b) => b.montantAReversser - a.montantAReversser) // Tri par montant décroissant
-                    .map((proprietaire) => (
-                    <div key={proprietaire.id} className="border border-blue-200 rounded-lg p-4 bg-blue-50">
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <h4 className="font-medium text-gray-900">
-                            {proprietaire.prenom} {proprietaire.nom}
-                          </h4>
-                          {proprietaire.telephone && (
-                            <p className="text-sm text-gray-600">📞 {proprietaire.telephone}</p>
-                          )}
-                          <p className="text-sm text-gray-600">
-                            🏠 {proprietaire.nombreBiens} bien(s) - {proprietaire.detailsBiens.length} locataire(s)
-                          </p>
-                          
-                          <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-                            <div className="bg-white p-3 rounded border">
-                              <span className="text-gray-600 block">À reverser</span>
-                              <span className="font-medium text-green-600 text-lg">
-                                {proprietaire.montantAReversser.toLocaleString()} FCFA
-                              </span>
-                            </div>
-                            <div className="bg-white p-3 rounded border">
-                              <span className="text-gray-600 block">Impayé</span>
-                              <span className="font-medium text-red-600 text-lg">
-                                {proprietaire.montantImpaye.toLocaleString()} FCFA
-                              </span>
-                            </div>
-                            <div className="bg-white p-3 rounded border">
-                              <span className="text-gray-600 block">Total attendu</span>
-                              <span className="font-medium text-blue-600 text-lg">
-                                {proprietaire.totalAttendu.toLocaleString()} FCFA
-                              </span>
-                            </div>
-                          </div>
+          <ReversementsTable
+            proprietaires={reversementsProprietaires}
+            onPrintRemittanceReceipt={handlePrintRemittanceReceipt}
+            onValidateRemittance={handleValidateRemittance}
+          />
+        )}
 
-                          {/* Détails des biens (collapsible) */}
-                          {proprietaire.detailsBiens.length > 0 && (
-                            <details className="mt-3">
-                              <summary className="text-sm text-blue-600 cursor-pointer hover:text-blue-800">
-                                Voir détail des {proprietaire.detailsBiens.length} locataire(s) ▼
-                              </summary>
-                              <div className="mt-2 space-y-2 pl-4 border-l-2 border-blue-200">
-                                {proprietaire.detailsBiens.map((detail, index) => (
-                                  <div key={index} className="bg-white p-2 rounded border text-xs">
-                                    <div className="font-medium">
-                                      {detail.locataire.prenom} {detail.locataire.nom}
-                                    </div>
-                                    <div className="text-gray-600">
-                                      {detail.bien.nomCour || `${detail.bien.quartier} ${detail.bien.ville}`}
-                                      {detail.bien.type === 'cour_commune' && detail.locataire.numeroMaison && 
-                                        ` - Maison n°${detail.locataire.numeroMaison}`
-                                      }
-                                    </div>
-                                    <div className="flex gap-4 mt-1">
-                                      <span>Dû: <strong>{detail.montantDu.toLocaleString()}</strong></span>
-                                      <span className="text-green-600">
-                                        Payé: <strong>{detail.montantPaye.toLocaleString()}</strong>
-                                      </span>
-                                      {detail.montantImpaye > 0 && (
-                                        <span className="text-red-600">
-                                          Impayé: <strong>{detail.montantImpaye.toLocaleString()}</strong>
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </details>
-                          )}
-                        </div>
-                        
-                        <div className="flex flex-col items-end space-y-2">
-                          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                            {proprietaire.montantAReversser > 0 ? 'À reverser' : 'Rien à reverser'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
+        {activeTab === 'archives' && (
+          <div className="p-6">
+            <div className="text-center py-12">
+              <div className="text-gray-400 text-5xl mb-4">🗄️</div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                Archives des Paiements et Reversements
+              </h3>
+              <p className="text-gray-600 mb-4">
+                L'onglet Archives complet est disponible dans une page dédiée pour une meilleure expérience.
+              </p>
+              <button
+                onClick={() => navigate('/archives')}
+                className="bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 inline-flex items-center gap-2"
+              >
+                🗄️ Aller aux Archives complètes
+              </button>
+            </div>
+          </div>
         )}
         </div>
+      </div>
+
+      {/* Modal de confirmation de suppression */}
+      {deleteModal.show && (
+        <div className="fixed inset-0 bg-black bg-opacity-20 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-fadeIn">
+            <div className="flex flex-col items-center text-center">
+              {/* Icône d'avertissement */}
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+                <Trash2 className="w-8 h-8 text-red-600" />
+              </div>
+
+              {/* Titre */}
+              <h3 className="text-xl font-bold text-gray-900 mb-2">
+                Confirmer la suppression
+              </h3>
+
+              {/* Message */}
+              <p className="text-gray-600 mb-6">
+                Êtes-vous sûr de vouloir supprimer le paiement de{' '}
+                <span className="font-semibold text-gray-900">
+                  {deleteModal.paiement && getLocataireInfo(deleteModal.paiement.locataireId).nom}
+                </span>
+                {' '}pour{' '}
+                <span className="font-semibold text-gray-900">
+                  {deleteModal.paiement?.mois} {deleteModal.paiement?.annee}
+                </span>
+                {' '}?
+                <br />
+                <span className="text-sm text-red-600 mt-2 block">
+                  Cette action est irréversible.
+                </span>
+              </p>
+
+              {/* Boutons */}
+              <div className="flex gap-3 w-full">
+                <button
+                  onClick={cancelDelete}
+                  className={`flex-1 ${BUTTON_SECONDARY}`}
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  className={`flex-1 ${BUTTON_DANGER}`}
+                >
+                  Supprimer
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmation du reversement */}
+      {confirmRemittanceModal.show && confirmRemittanceModal.proprietaire && (
+        <UniversalModal
+          variant="confirm"
+          isOpen={confirmRemittanceModal.show}
+          onClose={() => setConfirmRemittanceModal({ show: false, proprietaire: null, periode: null, paiements: [] })}
+          onConfirm={confirmRemittance}
+          title="Confirmer le reversement"
+          message={`Confirmer le reversement de ${formatCurrency(confirmRemittanceModal.proprietaire.montantAReversser)} à ${confirmRemittanceModal.proprietaire.prenom} ${confirmRemittanceModal.proprietaire.nom} pour ${confirmRemittanceModal.periode} ?\n\nCommission (10%): ${formatCurrency(confirmRemittanceModal.proprietaire.montantAReversser * 0.1)}\nMontant net: ${formatCurrency(confirmRemittanceModal.proprietaire.montantAReversser * 0.9)}`}
+          confirmText="Valider le reversement"
+          cancelText="Annuler"
+        />
+      )}
+
+      {/* Modal pour voir les archives */}
+      <UniversalModal
+        variant="info"
+        isOpen={confirmArchivesModal}
+        onClose={() => setConfirmArchivesModal(false)}
+        onConfirm={() => navigate('/archives')}
+        title="Reversement archivé"
+        message="Le reversement a été validé et archivé avec succès.\n\nVoulez-vous consulter les archives maintenant ?"
+        confirmText="Voir les archives"
+        cancelText="Fermer"
+      />
       </div>
     </div>
   )

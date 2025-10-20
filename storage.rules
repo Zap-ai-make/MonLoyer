@@ -1,0 +1,48 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Fonction helper pour vérifier si l'utilisateur est authentifié
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Fonction helper pour vérifier si l'utilisateur est le propriétaire de l'agence
+    function isAgenceOwner(agenceId) {
+      return isSignedIn() && request.auth.uid == agenceId;
+    }
+
+    // Fonction pour valider le type de fichier
+    function isValidFileType() {
+      return request.resource.contentType.matches('image/.*')
+          || request.resource.contentType == 'application/pdf'
+          || request.resource.contentType == 'application/msword'
+          || request.resource.contentType == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
+
+    // Fonction pour valider la taille du fichier (max 10MB)
+    function isValidFileSize() {
+      return request.resource.size <= 10 * 1024 * 1024;
+    }
+
+    // Dossier racine des agences
+    match /agences/{agenceId}/{allPaths=**} {
+      // Lecture: Seule l'agence propriétaire peut lire ses fichiers
+      allow read: if isAgenceOwner(agenceId);
+
+      // Écriture: Seule l'agence propriétaire peut uploader/modifier
+      // avec validation du type et de la taille
+      allow write: if isAgenceOwner(agenceId)
+                   && isValidFileType()
+                   && isValidFileSize();
+
+      // Suppression: Seule l'agence propriétaire peut supprimer
+      allow delete: if isAgenceOwner(agenceId);
+    }
+
+    // Bloquer tout accès par défaut
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

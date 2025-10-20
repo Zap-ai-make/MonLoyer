@@ -1,0 +1,154 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ========== FONCTIONS HELPER ==========
+
+    // Vérifier si l'utilisateur est authentifié
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Vérifier si l'utilisateur est le propriétaire de l'agence
+    function isAgenceOwner(agenceId) {
+      return isSignedIn() && request.auth.uid == agenceId;
+    }
+
+    // Valider qu'une chaîne n'est pas vide et n'excède pas une longueur max
+    function isValidString(value, maxLength) {
+      return value is string
+        && value.size() > 0
+        && value.size() <= maxLength;
+    }
+
+    // Valider qu'un nombre est positif
+    function isPositiveNumber(value) {
+      return value is number && value >= 0;
+    }
+
+    // Valider qu'une valeur est dans une liste
+    function isInList(value, list) {
+      return value in list;
+    }
+
+    // ========== COLLECTION AGENCES ==========
+
+    match /agences/{agenceId} {
+      // Lecture: Seule l'agence propriétaire
+      allow read: if isAgenceOwner(agenceId);
+
+      // Création: Lors de l'inscription
+      allow create: if isSignedIn()
+        && request.auth.uid == agenceId
+        && isValidString(request.resource.data.nom, 100)
+        && isValidString(request.resource.data.email, 100);
+
+      // Mise à jour: Validation des champs
+      allow update: if isAgenceOwner(agenceId)
+        && isValidString(request.resource.data.nom, 100);
+
+      // Suppression: Seule l'agence propriétaire
+      allow delete: if isAgenceOwner(agenceId);
+
+      // ========== SOUS-COLLECTIONS ==========
+
+      // Propriétaires
+      match /proprietaires/{proprietaireId} {
+        allow read: if isAgenceOwner(agenceId);
+
+        allow create: if isAgenceOwner(agenceId)
+          && isValidString(request.resource.data.nom, 100)
+          && isValidString(request.resource.data.prenom, 100)
+          && (request.resource.data.telephone is string || request.resource.data.telephone == '');
+
+        allow update: if isAgenceOwner(agenceId)
+          && isValidString(request.resource.data.nom, 100)
+          && isValidString(request.resource.data.prenom, 100);
+
+        allow delete: if isAgenceOwner(agenceId);
+      }
+
+      // Locataires
+      match /locataires/{locataireId} {
+        allow read: if isAgenceOwner(agenceId);
+
+        allow create: if isAgenceOwner(agenceId)
+          && isValidString(request.resource.data.nom, 100)
+          && isValidString(request.resource.data.prenom, 100)
+          && isValidString(request.resource.data.courId, 50)
+          && isPositiveNumber(request.resource.data.montantLoyer);
+
+        allow update: if isAgenceOwner(agenceId)
+          && isValidString(request.resource.data.nom, 100)
+          && isValidString(request.resource.data.prenom, 100)
+          && isPositiveNumber(request.resource.data.montantLoyer);
+
+        allow delete: if isAgenceOwner(agenceId);
+      }
+
+      // Biens immobiliers
+      match /biens/{bienId} {
+        allow read: if isAgenceOwner(agenceId);
+
+        allow create: if isAgenceOwner(agenceId)
+          && isValidString(request.resource.data.proprietaireId, 50)
+          && isValidString(request.resource.data.type, 50)
+          && isInList(request.resource.data.type, ['cour_unique', 'cour_commune', 'studio', 'appartement', 'maison'])
+          && isValidString(request.resource.data.ville, 100)
+          && isPositiveNumber(request.resource.data.montantLoyer);
+
+        allow update: if isAgenceOwner(agenceId)
+          && isValidString(request.resource.data.type, 50)
+          && isValidString(request.resource.data.ville, 100)
+          && isPositiveNumber(request.resource.data.montantLoyer);
+
+        allow delete: if isAgenceOwner(agenceId);
+      }
+
+      // Paiements
+      match /paiements/{paiementId} {
+        allow read: if isAgenceOwner(agenceId);
+
+        allow create: if isAgenceOwner(agenceId)
+          && isValidString(request.resource.data.locataireId, 50)
+          && isValidString(request.resource.data.courId, 50)
+          && isPositiveNumber(request.resource.data.montantPaye)
+          && isPositiveNumber(request.resource.data.montantLoyer)
+          && request.resource.data.mois is int
+          && request.resource.data.mois >= 1
+          && request.resource.data.mois <= 12
+          && request.resource.data.annee is int
+          && request.resource.data.annee >= 2020
+          && request.resource.data.annee <= 2050;
+
+        // Empêcher la modification des montants après création (anti-fraude)
+        allow update: if isAgenceOwner(agenceId)
+          && request.resource.data.montantPaye == resource.data.montantPaye
+          && request.resource.data.montantLoyer == resource.data.montantLoyer
+          && request.resource.data.mois == resource.data.mois
+          && request.resource.data.annee == resource.data.annee;
+
+        allow delete: if isAgenceOwner(agenceId);
+      }
+
+      // Documents
+      match /documents/{documentId} {
+        allow read: if isAgenceOwner(agenceId);
+
+        allow create: if isAgenceOwner(agenceId)
+          && isValidString(request.resource.data.type, 50)
+          && isValidString(request.resource.data.ownerType, 50)
+          && isInList(request.resource.data.ownerType, ['bien', 'locataire', 'proprietaire']);
+
+        allow update: if isAgenceOwner(agenceId);
+
+        allow delete: if isAgenceOwner(agenceId);
+      }
+    }
+
+    // Bloquer tout accès par défaut
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

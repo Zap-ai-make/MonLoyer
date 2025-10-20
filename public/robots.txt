@@ -1,0 +1,10 @@
+# robots.txt pour MonLoyer
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://monloyer.netlify.app/sitemap.xml
+
+# Désactiver l'indexation des fichiers de configuration
+Disallow: /*.json$
+Disallow: /*.config.js$

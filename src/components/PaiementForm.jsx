@@ -1,10 +1,15 @@
 import { useState, useEffect } from 'react'
 import dataService from '../services/dataService'
+import { useData } from '../contexts/DataContext'
+import { useForm } from '../hooks/useForm'
+import { sanitizeObject, SANITIZATION_RULES } from '../utils/sanitizer'
 
 function PaiementForm({ onClose, onSuccess }) {
+  const { refreshEntity } = useData()
   const [locataires, setLocataires] = useState([])
-  const [formData, setFormData] = useState({
+  const { formData, handleChange: baseHandleChange, updateFields } = useForm({
     locataireId: '',
+    courId: '',
     mois: '',
     annee: '',
     montantPaye: '',
@@ -18,15 +23,14 @@ function PaiementForm({ onClose, onSuccess }) {
     const currentDate = new Date()
     const currentMonth = currentDate.getMonth() + 1
     const currentYear = currentDate.getFullYear()
-    
+
     setLocataires(dataService.getLocataires().filter(l => l.statut === 'actif'))
-    setFormData(prev => ({
-      ...prev,
+    updateFields({
       mois: currentMonth.toString(),
       annee: currentYear.toString(),
       datePaiement: currentDate.toISOString().split('T')[0]
-    }))
-  }, [])
+    })
+  }, [updateFields])
 
   const moisNoms = [
     'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -35,26 +39,25 @@ function PaiementForm({ onClose, onSuccess }) {
 
   const handleChange = (e) => {
     const { name, value } = e.target
-    setFormData({
-      ...formData,
-      [name]: value
-    })
 
-    // Auto-remplir le montant si un locataire est sélectionné
+    // Appeler le handleChange de base du hook
+    baseHandleChange(e)
+
+    // Auto-remplir le montant et le courId si un locataire est sélectionné
     if (name === 'locataireId') {
       const locataire = locataires.find(l => l.id === value)
       if (locataire) {
-        setFormData(prev => ({
-          ...prev,
-          montantPaye: locataire.montantLoyer || ''
-        }))
+        updateFields({
+          montantPaye: locataire.montantLoyer || '',
+          courId: locataire.courId || ''
+        })
       }
     }
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    
+
     if (!formData.locataireId || !formData.montantPaye || !formData.mois || !formData.annee) {
       alert('Locataire, montant, mois et année sont obligatoires')
       return
@@ -62,18 +65,37 @@ function PaiementForm({ onClose, onSuccess }) {
 
     setLoading(true)
     try {
+      // Récupérer le locataire pour le montantLoyer et courId
+      const locataire = locataires.find(l => l.id === formData.locataireId)
+
+      if (!locataire) {
+        alert('Locataire introuvable')
+        setLoading(false)
+        return
+      }
+
       const paiementData = {
         ...formData,
+        courId: formData.courId || locataire.courId,
+        montantLoyer: locataire?.montantLoyer || formData.montantPaye,
         montantPaye: parseFloat(formData.montantPaye),
         mois: parseInt(formData.mois),
         annee: parseInt(formData.annee)
       }
-      
-      await dataService.addPaiement(paiementData)
+
+      // Sanitizer les données avant envoi
+      const sanitizedData = sanitizeObject(paiementData, SANITIZATION_RULES.paiement)
+
+      await dataService.addPaiement(sanitizedData)
+
+      // Invalider le cache et rafraîchir
+      dataService.invalidateCache('paiements')
+      refreshEntity('paiements')
+
       onSuccess && onSuccess()
       onClose()
-    } catch {
-      alert('Erreur lors de l\'enregistrement')
+    } catch (error) {
+      alert(`Erreur lors de l'enregistrement: ${error.message}`)
     } finally {
       setLoading(false)
     }
