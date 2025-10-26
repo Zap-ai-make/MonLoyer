@@ -58,7 +58,6 @@ class StorageService {
           (snapshot) => {
             // Calculer et notifier la progression
             const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100
-            logger.info(`Upload en cours: ${progress.toFixed(2)}%`)
 
             if (onProgress) {
               onProgress(progress)
@@ -80,7 +79,6 @@ class StorageService {
             // Upload terminé avec succès
             try {
               const downloadURL = await getDownloadURL(uploadTask.snapshot.ref)
-              logger.info('Fichier uploadé avec succès:', fullPath)
               resolve(downloadURL)
             } catch (error) {
               logger.error('Erreur récupération URL:', error)
@@ -111,7 +109,6 @@ class StorageService {
       const storageRef = ref(storage, fullPath)
       const url = await getDownloadURL(storageRef)
 
-      logger.info('URL récupérée:', fullPath)
       return url
     } catch (error) {
       logger.error('Erreur récupération URL:', error)
@@ -140,12 +137,10 @@ class StorageService {
       const storageRef = ref(storage, fullPath)
       await deleteObject(storageRef)
 
-      logger.info('Fichier supprimé:', fullPath)
     } catch (error) {
       logger.error('Erreur suppression fichier:', error)
 
       if (error.code === 'storage/object-not-found') {
-        logger.warn('Fichier déjà supprimé ou inexistant')
         return // Ne pas lancer d'erreur si le fichier n'existe pas
       }
 
@@ -189,7 +184,6 @@ class StorageService {
         })
       )
 
-      logger.info(`${files.length} fichiers listés dans ${fullPath}`)
       return files
     } catch (error) {
       logger.error('Erreur listage fichiers:', error)
@@ -231,7 +225,6 @@ class StorageService {
       })
 
       const urls = await Promise.all(uploadPromises)
-      logger.info(`${urls.length} fichiers uploadés avec succès`)
 
       return urls
     } catch (error) {

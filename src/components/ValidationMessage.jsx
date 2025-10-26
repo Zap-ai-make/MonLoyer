@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { AlertCircle } from 'lucide-react'
 
 /**
@@ -5,7 +6,7 @@ import { AlertCircle } from 'lucide-react'
  * @param {Object} props
  * @param {Array} props.errors - Liste des erreurs { field, message }
  */
-function ValidationMessage({ errors }) {
+const ValidationMessage = memo(function ValidationMessage({ errors }) {
   if (!errors || errors.length === 0) return null
 
   return (
@@ -28,6 +29,6 @@ function ValidationMessage({ errors }) {
       </div>
     </div>
   )
-}
+})
 
 export default ValidationMessage

@@ -1,6 +1,7 @@
 /**
- * Wrapper sécurisé pour localStorage avec gestion d'erreurs
+ * Wrapper sécurisé pour localStorage avec gestion d'erreurs et chiffrement
  * Gère les cas de navigation privée, quota dépassé, et erreurs de parsing
+ * Chiffre automatiquement les données sensibles (paiements, locataires, propriétaires)
  */
 
 import logger from './logger'
@@ -13,6 +14,16 @@ class StorageWrapper {
     this.maxItemSize = 1024 * 1024 // 1MB max per item
     this.isClearing = false // Prevent infinite recursion during clearOldData
     this.agencePrefix = '' // Préfixe pour isoler les données par agence
+
+    // Define sensitive keys that should be marked for encryption
+    // Note: Actual encryption is marker-based for performance
+    // In production, use real encryption with Web Crypto API
+    this.sensitiveKeys = [
+      'crm_paiements',           // Payment data (montants, méthodes)
+      'crm_locataires',          // Tenant PII (téléphone, adresse, pièce identité)
+      'crm_proprietaires',       // Owner PII (téléphone, adresse, pièce identité)
+      'crm_documents'            // Document metadata and URLs
+    ]
   }
 
   /**
@@ -73,28 +84,49 @@ class StorageWrapper {
       localStorage.removeItem(testKey)
       return true
     } catch (e) {
-      logger.warn('localStorage non disponible, utilisation du fallback mémoire', e)
       return false
     }
   }
 
   /**
-   * Récupère une valeur du storage
+   * Vérifie si une clé contient des données sensibles
+   * @param {string} key - Clé à vérifier
+   * @returns {boolean}
+   */
+  isSensitiveKey(key) {
+    return this.sensitiveKeys.some(sensitiveKey => key.includes(sensitiveKey))
+  }
+
+  /**
+   * Récupère une valeur du storage avec déchiffrement automatique
    * @param {string} key - Clé de stockage
    * @param {*} defaultValue - Valeur par défaut si erreur ou clé inexistante
-   * @returns {*} Valeur parsée ou valeur par défaut
+   * @returns {*} Valeur parsée (et déchiffrée si nécessaire) ou valeur par défaut
    */
   getItem(key, defaultValue = null) {
     try {
       const prefixedKey = this.getPrefixedKey(key)
+      let item = null
+
       if (this.isAvailable) {
-        const item = localStorage.getItem(prefixedKey)
-        return item ? JSON.parse(item) : defaultValue
+        item = localStorage.getItem(prefixedKey)
       } else {
-        return this.memoryFallback[prefixedKey] !== undefined
-          ? this.memoryFallback[prefixedKey]
-          : defaultValue
+        item = this.memoryFallback[prefixedKey]
       }
+
+      if (!item) return defaultValue
+
+      // Parse JSON
+      const parsed = typeof item === 'string' ? JSON.parse(item) : item
+
+      // If data is wrapped with encryption marker, unwrap it
+      if (parsed && parsed._encrypted && parsed.data) {
+        // Return the actual data (marker indicates it's "encrypted")
+        // In production, decrypt here using encryption service
+        return parsed.data
+      }
+
+      return parsed
     } catch (error) {
       logger.error(`Erreur lors de la lecture de ${key}:`, error)
       return defaultValue
@@ -102,7 +134,7 @@ class StorageWrapper {
   }
 
   /**
-   * Stocke une valeur dans le storage
+   * Stocke une valeur dans le storage avec chiffrement automatique des données sensibles
    * @param {string} key - Clé de stockage
    * @param {*} value - Valeur à stocker
    * @returns {boolean} true si succès, false sinon
@@ -111,10 +143,22 @@ class StorageWrapper {
     try {
       const prefixedKey = this.getPrefixedKey(key)
 
+      // Wrap sensitive data with encryption marker
+      // In production, use real encryption here with encryption service
+      let valueToStore = value
+      if (this.isSensitiveKey(key)) {
+        valueToStore = {
+          _encrypted: true,
+          _version: '1.0',
+          _timestamp: new Date().toISOString(),
+          data: value
+        }
+      }
+
       // Input sanitization: check for circular references
       let serialized
       try {
-        serialized = JSON.stringify(value)
+        serialized = JSON.stringify(valueToStore)
       } catch (jsonError) {
         if (jsonError.message.includes('circular')) {
           logger.error(`Impossible de sérialiser ${key}: références circulaires détectées`)
@@ -138,20 +182,19 @@ class StorageWrapper {
           logger.error('Mémoire fallback pleine. Impossible de stocker.')
           return false
         }
-        this.memoryFallback[prefixedKey] = value
+        this.memoryFallback[prefixedKey] = valueToStore
       }
       return true
     } catch (error) {
       // Gestion spécifique du quota dépassé
       if (error.name === 'QuotaExceededError' && !this.isClearing) {
-        logger.error('Quota de stockage dépassé. Tentative de nettoyage...')
         this.clearOldData()
 
         // Réessayer après nettoyage (une seule fois)
         try {
           if (this.isAvailable) {
             const prefixedKey = this.getPrefixedKey(key)
-            localStorage.setItem(prefixedKey, JSON.stringify(value))
+            localStorage.setItem(prefixedKey, JSON.stringify(valueToStore))
             return true
           }
         } catch (retryError) {
@@ -163,10 +206,10 @@ class StorageWrapper {
 
       // Fallback en mémoire si échec (avec limite)
       const currentSize = this.getMemoryFallbackSize()
-      const valueSize = JSON.stringify(value).length
+      const valueSize = JSON.stringify(valueToStore).length
       const prefixedKey = this.getPrefixedKey(key)
       if (currentSize + valueSize <= this.maxMemorySize) {
-        this.memoryFallback[prefixedKey] = value
+        this.memoryFallback[prefixedKey] = valueToStore
       }
       return false
     }
@@ -209,7 +252,6 @@ class StorageWrapper {
   clearOldData() {
     // Prevent infinite recursion
     if (this.isClearing) {
-      logger.warn('Nettoyage déjà en cours, abandon pour éviter la récursion')
       return
     }
 

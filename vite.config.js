@@ -12,12 +12,37 @@ export default defineConfig({
     target: 'es2015',
     sourcemap: false,
     minify: 'esbuild',
-    cssMinify: 'esbuild',
+    cssMinify: 'lightningcss',
     rollupOptions: {
       output: {
         manualChunks(id) {
-          // Séparer les dépendances vendor des modules applicatifs
+          // Code splitting optimisé pour réduire le bundle initial
           if (id.includes('node_modules')) {
+            // Firebase (authentication, firestore, storage) - ~400KB
+            if (id.includes('firebase') || id.includes('@firebase')) {
+              return 'firebase'
+            }
+            // Recharts (graphiques) - ~500KB
+            if (id.includes('recharts')) {
+              return 'recharts'
+            }
+            // Google Maps - ~300KB
+            if (id.includes('@react-google-maps') || id.includes('googlemaps')) {
+              return 'google-maps'
+            }
+            // jsPDF (génération PDF) - ~200KB
+            if (id.includes('jspdf')) {
+              return 'jspdf'
+            }
+            // Zod (validation) - ~50KB
+            if (id.includes('zod')) {
+              return 'zod'
+            }
+            // React core (react, react-dom, react-router)
+            if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
+              return 'react-vendor'
+            }
+            // Autres vendors (lucide-react, etc.)
             return 'vendor'
           }
         },
@@ -26,8 +51,24 @@ export default defineConfig({
         assetFileNames: 'assets/[name].[hash].[ext]'
       }
     },
-    chunkSizeWarningLimit: 1000,
-    reportCompressedSize: false
+    chunkSizeWarningLimit: 500,
+    reportCompressedSize: false,
+    // Optimisations de compression
+    terserOptions: {
+      compress: {
+        drop_console: true, // Supprimer tous les console.* en production
+        drop_debugger: true,
+        pure_funcs: ['console.log', 'console.info', 'console.debug']
+      }
+    }
+  },
+  // Optimiser les dépendances
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react-router-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+    exclude: ['@react-google-maps/api'], // Lazy load Google Maps
+    esbuildOptions: {
+      target: 'es2020'
+    }
   },
   define: {
     global: 'globalThis'

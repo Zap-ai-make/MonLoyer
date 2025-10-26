@@ -4,9 +4,10 @@ import { ProprietaireSchema, BienSchema, LocataireSchema, PaiementSchema } from 
 import statsService from './statsService'
 import logger from '../utils/logger'
 import firestoreService from './firestoreService'
+import auditService, { AUDIT_EVENTS, AUDIT_SEVERITY } from './auditService'
 import { shouldUseFirebase, getCurrentAgenceId, cleanForFirestore } from '../utils/firebaseHelpers'
 
-// Service hybride : localStorage (synchrone) + Firestore (async en arrière-plan)
+// Service hybride : localStorage (synchrone) + Firestore (async en arrière-plan) avec audit logging
 class DataService {
   constructor() {
     this.storageKeys = {
@@ -47,8 +48,6 @@ class DataService {
     if (!shouldUseFirebase()) return
 
     try {
-      logger.info('Chargement des données depuis Firestore pour l\'agence:', agenceId)
-
       const [proprietaires, biens, locataires, paiements] = await Promise.all([
         firestoreService.getDocuments(agenceId, 'proprietaires'),
         firestoreService.getDocuments(agenceId, 'biens'),
@@ -61,8 +60,6 @@ class DataService {
       this.setData('biens', biens || [])
       this.setData('locataires', locataires || [])
       this.setData('paiements', paiements || [])
-
-      logger.info('Données chargées depuis Firestore avec succès')
     } catch (error) {
       logger.error('Erreur lors du chargement depuis Firestore:', error)
       // Ne pas bloquer l'app - on continue avec localStorage vide
@@ -83,15 +80,12 @@ class DataService {
       switch (action) {
         case 'add':
           await firestoreService.addDocument(agenceId, collection, { ...cleanData, id })
-          logger.info(`${collection} synchronisé (add) vers Firestore:`, id)
           break
         case 'update':
           await firestoreService.updateDocument(agenceId, collection, id, cleanData)
-          logger.info(`${collection} synchronisé (update) vers Firestore:`, id)
           break
         case 'delete':
           await firestoreService.deleteDocument(agenceId, collection, id)
-          logger.info(`${collection} synchronisé (delete) vers Firestore:`, id)
           break
       }
     } catch (error) {
@@ -154,7 +148,6 @@ class DataService {
       }
       proprietaires.push(newProprietaire)
       this.setData('proprietaires', proprietaires)
-      logger.info('Propriétaire ajouté:', newProprietaire.id)
 
       // Synchroniser avec Firestore en arrière-plan
       this.syncToFirestore('proprietaires', 'add', newProprietaire.id, validated)
@@ -176,7 +169,6 @@ class DataService {
       if (index !== -1) {
         proprietaires[index] = { ...proprietaires[index], ...validated }
         this.setData('proprietaires', proprietaires)
-        logger.info('Propriétaire mis à jour:', id)
 
         // Synchroniser avec Firestore en arrière-plan (envoyer l'objet complet pour validation)
         this.syncToFirestore('proprietaires', 'update', id, proprietaires[index])
@@ -192,6 +184,21 @@ class DataService {
 
   deleteProprietaire(id) {
     const proprietaires = this.getProprietaires()
+    const proprietaire = proprietaires.find(p => p.id === id)
+
+    // Audit log avant suppression
+    if (proprietaire) {
+      auditService.log(
+        AUDIT_EVENTS.OWNER_DELETED,
+        {
+          proprietaireId: id,
+          nom: proprietaire.nom,
+          prenom: proprietaire.prenom
+        },
+        AUDIT_SEVERITY.WARNING
+      )
+    }
+
     const filtered = proprietaires.filter(p => p.id !== id)
     this.setData('proprietaires', filtered)
 
@@ -267,7 +274,6 @@ class DataService {
 
       biens.push(newBien)
       this.setData('biens', biens)
-      logger.info('Bien ajouté:', newBien.id)
 
       // Synchroniser avec Firestore en arrière-plan (passer l'objet complet)
       this.syncToFirestore('biens', 'add', newBien.id, newBien)
@@ -319,7 +325,6 @@ class DataService {
 
         biens[index] = { ...existingBien, ...validated }
         this.setData('biens', biens)
-        logger.info('Bien mis à jour:', id)
 
         // Synchroniser avec Firestore en arrière-plan (passer l'objet complet)
         this.syncToFirestore('biens', 'update', id, biens[index])
@@ -397,11 +402,58 @@ class DataService {
     if (bienIndex !== -1 && biens[bienIndex].maisons) {
       const maisonIndex = biens[bienIndex].maisons.findIndex(m => m.numeroMaison === parseInt(numeroMaison))
       if (maisonIndex !== -1) {
+        const locataireId = biens[bienIndex].maisons[maisonIndex].locataireId
+
+        // Libérer la maison
         biens[bienIndex].maisons[maisonIndex].statut = 'libre'
         biens[bienIndex].maisons[maisonIndex].locataireId = null
         this.setData('biens', biens)
+
+        // Marquer le locataire comme inactif
+        if (locataireId) {
+          this.updateLocataire(locataireId, { statut: 'inactif' })
+        }
+
+        // Synchroniser avec Firestore
+        this.syncToFirestore('biens', 'update', courId, biens[bienIndex])
+
+        // Invalider les caches pour rafraîchir les statistiques
+        this.invalidateCache()
+
         return true
       }
+    }
+    return false
+  }
+
+  /**
+   * Libérer un bien unique (cour_unique, magasin, etc.)
+   * Marque le bien comme libre et le locataire associé comme inactif
+   */
+  libererBien(bienId) {
+    const biens = this.getBiens()
+    const bienIndex = biens.findIndex(b => b.id === bienId)
+
+    if (bienIndex !== -1) {
+      // Trouver le(s) locataire(s) du bien
+      const locataires = this.getLocatairesByCour(bienId)
+
+      // Marquer le bien comme libre
+      biens[bienIndex].statut = 'libre'
+      this.setData('biens', biens)
+
+      // Marquer tous les locataires comme inactifs
+      locataires.forEach(locataire => {
+        this.updateLocataire(locataire.id, { statut: 'inactif' })
+      })
+
+      // Synchroniser avec Firestore
+      this.syncToFirestore('biens', 'update', bienId, biens[bienIndex])
+
+      // Invalider les caches pour rafraîchir les statistiques
+      this.invalidateCache()
+
+      return true
     }
     return false
   }
@@ -453,7 +505,6 @@ class DataService {
 
       locataires.push(newLocataire)
       this.setData('locataires', locataires)
-      logger.info('Locataire ajouté:', newLocataire.id)
 
       // Synchroniser avec Firestore en arrière-plan (passer l'objet complet)
       this.syncToFirestore('locataires', 'add', newLocataire.id, newLocataire)
@@ -475,7 +526,6 @@ class DataService {
       if (index !== -1) {
         locataires[index] = { ...locataires[index], ...validated }
         this.setData('locataires', locataires)
-        logger.info('Locataire mis à jour:', id)
 
         // Synchroniser avec Firestore en arrière-plan (passer l'objet complet)
         this.syncToFirestore('locataires', 'update', id, locataires[index])
@@ -537,7 +587,6 @@ class DataService {
       }
       paiements.push(newPaiement)
       this.setData('paiements', paiements)
-      logger.info('Paiement ajouté:', newPaiement.id)
 
       // Synchroniser avec Firestore en arrière-plan (passer l'objet complet)
       this.syncToFirestore('paiements', 'add', newPaiement.id, newPaiement)
@@ -559,7 +608,6 @@ class DataService {
       if (index !== -1) {
         paiements[index] = { ...paiements[index], ...validated }
         this.setData('paiements', paiements)
-        logger.info('Paiement mis à jour:', id)
 
         // Synchroniser avec Firestore en arrière-plan (passer l'objet complet)
         this.syncToFirestore('paiements', 'update', id, paiements[index])

@@ -7,7 +7,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Charte graphique MonLoyer V2
+        // Charte graphique Woning.cloud V2
         primary: {
           DEFAULT: '#003C57', // Bleu pétrole - Confiance, sérieux
           50: '#E8F1F8',
@@ -62,7 +62,7 @@ export default {
         },
       },
       fontFamily: {
-        // Typographie MonLoyer
+        // Typographie Woning.cloud
         sans: ['Roboto', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
         display: ['Poppins', 'system-ui', 'sans-serif'],
       },

@@ -40,7 +40,6 @@ class ErrorBoundary extends Component {
   logErrorToService(error, errorInfo) {
     // Placeholder pour l'envoi d'erreurs à un service externe
     // Exemple: Sentry, LogRocket, etc.
-    logger.info('Logging error to monitoring service:', { error, errorInfo })
   }
 
   handleReset = () => {

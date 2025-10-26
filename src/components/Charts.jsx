@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { formatCurrency } from '../utils/formatters'
 
@@ -55,23 +55,38 @@ export const OccupancyPieChart = memo(function OccupancyPieChart({ occupees, lib
   )
 })
 
-// Graphique histogramme pour revenus mensuels avec légende claire
-export const MonthlyRevenueChart = memo(function MonthlyRevenueChart({ data }) {
+// Graphique histogramme pour revenus mensuels avec légende claire et sélecteur de période
+export const MonthlyRevenueChart = memo(function MonthlyRevenueChart({ data, showPeriodSelector = false, onPeriodChange, defaultPeriod = 30 }) {
   // Format: [{ mois: 'Jan', montant: 1500000, attendu: 2000000 }]
+  const [selectedPeriod, setSelectedPeriod] = useState(defaultPeriod)
+
+  const handlePeriodChange = (period) => {
+    setSelectedPeriod(period)
+    if (onPeriodChange) {
+      onPeriodChange(period)
+    }
+  }
 
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
+      // Utiliser les données directement du payload pour éviter tout problème de synchronisation
+      const currentData = payload[0].payload
       return (
-        <div className="bg-white border border-neutral-200 rounded-lg shadow-soft p-3">
-          <p className="font-medium mb-1" style={{ color: '#003C57', fontFamily: 'Poppins, sans-serif' }}>
-            {payload[0].payload.mois}
+        <div className="bg-white border border-neutral-200 rounded-lg shadow-lg p-3">
+          <p className="font-medium mb-2" style={{ color: '#003C57', fontFamily: 'Poppins, sans-serif' }}>
+            {currentData.mois}
           </p>
-          <p className="text-sm flex items-center gap-2" style={{ color: '#00B894' }}>
-            ✅ Reçu: {formatCurrency(payload[0].value)}
+          <p className="text-sm flex items-center gap-2 mb-1" style={{ color: '#00B894' }}>
+            <span className="font-semibold">✅ Reçu:</span>
+            <span className="font-bold">{formatCurrency(currentData.montant || 0)}</span>
           </p>
-          {payload[1] && (
-            <p className="text-sm flex items-center gap-2" style={{ color: '#6C757D' }}>
-              💵 Attendu: {formatCurrency(payload[1].value)}
+          <p className="text-sm flex items-center gap-2" style={{ color: '#6C757D' }}>
+            <span className="font-semibold">💵 Attendu:</span>
+            <span className="font-bold">{formatCurrency(currentData.attendu || 0)}</span>
+          </p>
+          {currentData.montant > 0 && currentData.attendu > 0 && (
+            <p className="text-xs mt-2 pt-2 border-t border-gray-200" style={{ color: '#6C757D' }}>
+              Taux: {Math.round((currentData.montant / currentData.attendu) * 100)}%
             </p>
           )}
         </div>
@@ -82,20 +97,59 @@ export const MonthlyRevenueChart = memo(function MonthlyRevenueChart({ data }) {
 
   return (
     <div>
-      {/* Légende claire avec emojis */}
-      <div className="flex items-center justify-center gap-6 mb-4">
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full" style={{ backgroundColor: '#00B894' }} />
-          <span className="text-sm font-medium" style={{ color: '#6C757D' }}>
-            ✅ Reçu
-          </span>
+      {/* En-tête avec légende et sélecteur de période */}
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        {/* Légende */}
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded-full" style={{ backgroundColor: '#00B894' }} />
+            <span className="text-sm font-medium" style={{ color: '#6C757D' }}>
+              ✅ Reçu
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded-full" style={{ backgroundColor: '#E9ECEF' }} />
+            <span className="text-sm font-medium" style={{ color: '#6C757D' }}>
+              💵 Attendu
+            </span>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full" style={{ backgroundColor: '#E9ECEF' }} />
-          <span className="text-sm font-medium" style={{ color: '#6C757D' }}>
-            💵 Attendu
-          </span>
-        </div>
+
+        {/* Sélecteur de période (optionnel) */}
+        {showPeriodSelector && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handlePeriodChange(7)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                selectedPeriod === 7
+                  ? 'bg-blue-500 text-white shadow-md'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              7 jours
+            </button>
+            <button
+              onClick={() => handlePeriodChange(30)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                selectedPeriod === 30
+                  ? 'bg-blue-500 text-white shadow-md'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              30 jours
+            </button>
+            <button
+              onClick={() => handlePeriodChange(90)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                selectedPeriod === 90
+                  ? 'bg-blue-500 text-white shadow-md'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              90 jours
+            </button>
+          </div>
+        )}
       </div>
 
       <ResponsiveContainer width="100%" height={280}>
@@ -111,7 +165,7 @@ export const MonthlyRevenueChart = memo(function MonthlyRevenueChart({ data }) {
             axisLine={{ stroke: '#E9ECEF' }}
             tickFormatter={(value) => `${(value / 1000)}k`}
           />
-          <Tooltip content={<CustomTooltip />} />
+          <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0, 184, 148, 0.1)' }} />
           <Bar
             dataKey="montant"
             name="✅ Reçu"

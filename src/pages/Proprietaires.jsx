@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Edit2, Trash2 } from 'lucide-react'
 import { useData } from '../contexts/DataContext'
 import { useCrudOperations } from '../hooks/useCrudOperations'
@@ -6,10 +7,12 @@ import Tooltip from '../components/Tooltip'
 import ProprietaireForm from '../components/ProprietaireForm'
 import UniversalModal from '../components/UniversalModal'
 import DataTable from '../components/DataTable'
-import { BUTTON_PRIMARY, ICON_BUTTON_BASE } from '../constants/cssClasses'
+import { BUTTON_PRIMARY_GREEN, ICON_BUTTON_BASE } from '../constants/cssClasses'
+import { formatDate } from '../utils/formatters'
 
 function Proprietaires() {
-  const { proprietaires, biens } = useData()
+  const { proprietaires, biens, locataires, paiements } = useData()
+  const navigate = useNavigate()
 
   const {
     showForm,
@@ -25,6 +28,53 @@ function Proprietaires() {
 
   const getBiensCount = (proprietaireId) => {
     return biens.filter(b => b.proprietaireId === proprietaireId).length
+  }
+
+  const getLastPaiementDate = (proprietaireId) => {
+    // Récupérer tous les biens du propriétaire
+    const proprietaireBiens = biens.filter(b => b.proprietaireId === proprietaireId)
+
+    if (proprietaireBiens.length === 0) return null
+
+    // Récupérer tous les locataires de ces biens
+    const locataireIds = new Set()
+    proprietaireBiens.forEach(bien => {
+      if (bien.type === 'cour_commune' && bien.maisons) {
+        bien.maisons.forEach(maison => {
+          if (maison.locataireId) locataireIds.add(maison.locataireId)
+        })
+      } else if (bien.locataireId) {
+        locataireIds.add(bien.locataireId)
+      }
+    })
+
+    if (locataireIds.size === 0) return null
+
+    // Trouver le dernier paiement de ces locataires
+    const proprietairePaiements = paiements.filter(p => locataireIds.has(p.locataireId))
+
+    if (proprietairePaiements.length === 0) return null
+
+    // Trier par date décroissante et prendre le plus récent
+    const sortedPaiements = proprietairePaiements.sort((a, b) =>
+      new Date(b.datePaiement) - new Date(a.datePaiement)
+    )
+
+    return sortedPaiements[0].datePaiement
+  }
+
+  const getLastPaiementStatus = (lastPaiementDate) => {
+    if (!lastPaiementDate) return 'none'
+
+    const daysSince = Math.floor((new Date() - new Date(lastPaiementDate)) / (1000 * 60 * 60 * 24))
+
+    if (daysSince <= 30) return 'recent'
+    if (daysSince <= 60) return 'warning'
+    return 'danger'
+  }
+
+  const handleBiensClick = (proprietaireId) => {
+    navigate('/biens', { state: { filterProprietaireId: proprietaireId } })
   }
 
   // Configuration des colonnes pour DataTable
@@ -71,13 +121,64 @@ function Proprietaires() {
       label: 'Biens',
       searchable: true,
       accessor: (prop) => getBiensCount(prop.id),
-      render: (prop) => (
-        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-          {getBiensCount(prop.id)} bien(s)
-        </span>
-      )
+      render: (prop) => {
+        const count = getBiensCount(prop.id)
+        return (
+          <Tooltip content={count > 0 ? "Cliquer pour filtrer les biens" : "Aucun bien"}>
+            <button
+              onClick={() => count > 0 && handleBiensClick(prop.id)}
+              disabled={count === 0}
+              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                count > 0
+                  ? 'bg-green-100 text-green-800 hover:bg-green-200 cursor-pointer transition-colors'
+                  : 'bg-gray-100 text-gray-500 cursor-not-allowed'
+              }`}
+            >
+              {count} bien{count > 1 ? 's' : ''}
+            </button>
+          </Tooltip>
+        )
+      }
+    },
+    {
+      key: 'dernierPaiement',
+      label: 'Dernier Paiement Reçu',
+      searchable: false,
+      accessor: (prop) => {
+        const date = getLastPaiementDate(prop.id)
+        return date ? formatDate(date) : ''
+      },
+      render: (prop) => {
+        const lastPaiementDate = getLastPaiementDate(prop.id)
+        const status = getLastPaiementStatus(lastPaiementDate)
+
+        if (!lastPaiementDate) {
+          return (
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
+              Aucun paiement
+            </span>
+          )
+        }
+
+        const statusConfig = {
+          recent: { bg: 'bg-green-100', text: 'text-green-800', label: 'Récent' },
+          warning: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Il y a 1-2 mois' },
+          danger: { bg: 'bg-red-100', text: 'text-red-800', label: '> 2 mois' }
+        }
+
+        const config = statusConfig[status]
+
+        return (
+          <div>
+            <div className="text-sm text-gray-900">{formatDate(lastPaiementDate)}</div>
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${config.bg} ${config.text} mt-1`}>
+              {config.label}
+            </span>
+          </div>
+        )
+      }
     }
-  ], [biens])
+  ], [biens, paiements])
 
   const renderActions = (proprietaire) => (
     <div className="flex items-center gap-3">
@@ -113,7 +214,7 @@ function Proprietaires() {
           </div>
           <button
             onClick={openCreateForm}
-            className={`${BUTTON_PRIMARY} flex items-center justify-center`}
+            className={`${BUTTON_PRIMARY_GREEN} flex items-center justify-center`}
           >
             <span className="mr-2">+</span>
             Nouveau Propriétaire

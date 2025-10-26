@@ -8,6 +8,7 @@ import PrivateRoute from './components/PrivateRoute'
 import NotificationContainer from './components/NotificationContainer'
 import ErrorBoundary from './components/ErrorBoundary'
 import LoadingSpinner from './components/LoadingSpinner'
+import Carte from './pages/Carte'
 
 // Lazy loading des pages pour optimiser le bundle
 const Dashboard = lazy(() => import('./pages/Dashboard'))
@@ -18,7 +19,6 @@ const Paiements = lazy(() => import('./pages/Paiements'))
 const Documents = lazy(() => import('./pages/Documents'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Archives = lazy(() => import('./pages/Archives'))
-const Carte = lazy(() => import('./pages/Carte'))
 const Login = lazy(() => import('./pages/Login'))
 const Register = lazy(() => import('./pages/Register'))
 

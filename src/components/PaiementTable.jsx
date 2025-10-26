@@ -4,6 +4,7 @@ import { MOIS, MODES_PAIEMENT, STATUT_COLORS, STATUT_LABELS } from '../constants
 import { ICON_BUTTON_BASE } from '../constants/cssClasses'
 import { formatCurrency } from '../utils/formatters'
 import Tooltip from './Tooltip'
+import ReceiptManager from './ReceiptManager'
 
 const PaiementTable = memo(function PaiementTable({
   paiements,
@@ -90,6 +91,9 @@ const PaiementTable = memo(function PaiementTable({
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Statut
               </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Reçu
+              </th>
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Actions
               </th>
@@ -99,6 +103,8 @@ const PaiementTable = memo(function PaiementTable({
             {paginatedPaiements.map((paiement) => {
             const locataireInfo = getLocataireInfo(paiement.locataireId)
             const statut = getStatutBadge(paiement.statut, paiement.montantPaye, paiement.montantDu)
+            const locataire = locataires.find(l => l.id === paiement.locataireId)
+            const bien = biens.find(b => b.id === (locataire?.courId || locataire?.bienId))
 
             return (
               <tr key={paiement.id} className="hover:bg-gray-50">
@@ -114,10 +120,12 @@ const PaiementTable = memo(function PaiementTable({
                   <div className="text-sm font-medium text-gray-900">
                     {paiement.paiementMultiple ? (
                       <div className="flex items-center gap-2">
-                        <span>{paiement.moisDuGroupe?.join(', ') || paiement.mois}</span>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          {paiement.totalMoisPayes} mois
-                        </span>
+                        <span>{paiement.moisDuGroupe?.[0] || paiement.mois}</span>
+                        {paiement.totalMoisPayes > 1 && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            +{paiement.totalMoisPayes - 1} mois
+                          </span>
+                        )}
                       </div>
                     ) : (
                       `${typeof paiement.mois === 'number' ? MOIS[paiement.mois] : paiement.mois} ${paiement.annee}`
@@ -198,6 +206,13 @@ const PaiementTable = memo(function PaiementTable({
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statut.color}`}>
                     {statut.label}
                   </span>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <ReceiptManager
+                    paiement={paiement}
+                    locataire={locataire}
+                    bien={bien}
+                  />
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                   <div className="flex items-center justify-end gap-2">

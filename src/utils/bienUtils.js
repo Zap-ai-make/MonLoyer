@@ -36,6 +36,22 @@ export const getProprietaireNom = (proprietaireId, proprietaires) => {
 }
 
 /**
+ * Détermine si un bien est occupé
+ * @param {Object} bien - Objet bien immobilier
+ * @returns {boolean} True si le bien est occupé
+ */
+export const isOccupe = (bien) => {
+  // Pour une cour commune, vérifier si au moins une maison est occupée
+  if (bien.type === 'cour_commune' && bien.maisons) {
+    return bien.maisons.some(maison => maison.statut === 'occupee')
+  }
+
+  // Pour un bien simple, vérifier le statut normalisé
+  const statutNormalized = bien.statut?.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  return statutNormalized === 'occupe' || statutNormalized === 'occupee'
+}
+
+/**
  * Valide les données d'un formulaire de bien
  * @param {Object} formData - Données du formulaire
  * @returns {Object} { isValid: boolean, errors: Array }

@@ -54,7 +54,9 @@ function Layout({ children }) {
 
         {/* Contenu principal */}
         <main className="flex-1 p-4 md:p-6 lg:p-8 xl:p-10 2xl:p-12 min-w-0 max-w-[1920px] mx-auto w-full">
-          {children}
+          <div className="page-container">
+            {children}
+          </div>
         </main>
       </div>
 

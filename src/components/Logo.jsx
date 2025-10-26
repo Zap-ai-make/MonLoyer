@@ -1,6 +1,15 @@
+import { memo } from 'react'
 import { COLORS } from '../constants/colors'
 
-function Logo({ className = "", size = "md", showText = true, customText = null }) {
+/**
+ * Composant Logo - Logo de l'application avec icône maison
+ * @param {Object} props
+ * @param {string} props.className - Classes CSS additionnelles
+ * @param {'sm'|'md'|'lg'|'xl'} props.size - Taille du logo
+ * @param {boolean} props.showText - Afficher le texte à côté du logo
+ * @param {string} props.customText - Texte personnalisé (défaut: 'Woning')
+ */
+const Logo = memo(function Logo({ className = "", size = "md", showText = true, customText = null }) {
   const sizes = {
     sm: { icon: 24, text: "text-sm" },
     md: { icon: 32, text: "text-lg" },
@@ -38,6 +47,6 @@ function Logo({ className = "", size = "md", showText = true, customText = null 
       )}
     </div>
   )
-}
+})
 
 export default Logo

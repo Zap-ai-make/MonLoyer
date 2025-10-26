@@ -16,7 +16,7 @@ const PaiementStats = memo(function PaiementStats({ resume, filtreMois }) {
               Basé sur les maisons occupées
             </p>
           </div>
-          <div className="text-blue-600 text-3xl">🏠</div>
+          <div className="text-blue-600 text-3xl">💵</div>
         </div>
       </div>
 

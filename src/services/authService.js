@@ -11,22 +11,88 @@ import {
 import { doc, setDoc, getDoc } from 'firebase/firestore'
 import { auth, db, isFirebaseConfigured } from '../firebaseConfig'
 import logger from '../utils/logger'
+import rateLimiter from '../utils/rateLimiter'
 
 /**
  * Service d'authentification Firebase pour les agences immobilières
  *
  * Gère:
- * - Inscription des nouvelles agences
- * - Connexion/Déconnexion
+ * - Inscription des nouvelles agences avec politique de mot de passe renforcée
+ * - Connexion/Déconnexion avec limitation de débit (rate limiting)
  * - Récupération des informations agence
  * - Observer les changements d'état d'authentification
+ * - Protection contre les attaques par force brute
  */
 
 class AuthService {
   /**
+   * Valider la force du mot de passe
+   * @param {string} password - Mot de passe à valider
+   * @returns {Object} - { isValid: boolean, message: string }
+   */
+  validatePasswordStrength(password) {
+    // Minimum 12 caractères
+    if (password.length < 12) {
+      return {
+        isValid: false,
+        message: 'Le mot de passe doit contenir au moins 12 caractères'
+      }
+    }
+
+    // Au moins une majuscule
+    if (!/[A-Z]/.test(password)) {
+      return {
+        isValid: false,
+        message: 'Le mot de passe doit contenir au moins une lettre majuscule'
+      }
+    }
+
+    // Au moins une minuscule
+    if (!/[a-z]/.test(password)) {
+      return {
+        isValid: false,
+        message: 'Le mot de passe doit contenir au moins une lettre minuscule'
+      }
+    }
+
+    // Au moins un chiffre
+    if (!/[0-9]/.test(password)) {
+      return {
+        isValid: false,
+        message: 'Le mot de passe doit contenir au moins un chiffre'
+      }
+    }
+
+    // Au moins un caractère spécial
+    if (!/[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\\/;']/.test(password)) {
+      return {
+        isValid: false,
+        message: 'Le mot de passe doit contenir au moins un caractère spécial (!@#$%^&*...)'
+      }
+    }
+
+    // Pas de mots de passe courants
+    const commonPasswords = [
+      'password123', 'administrator', '12345678901', 'qwertyuiop',
+      'motdepasse123', 'administrateur', 'bienvenue123'
+    ]
+
+    if (commonPasswords.some(common => password.toLowerCase().includes(common))) {
+      return {
+        isValid: false,
+        message: 'Ce mot de passe est trop courant. Choisissez un mot de passe plus sécurisé'
+      }
+    }
+
+    return {
+      isValid: true,
+      message: 'Mot de passe accepté'
+    }
+  }
+  /**
    * Inscription d'une nouvelle agence
    * @param {string} email - Email professionnel de l'agence
-   * @param {string} password - Mot de passe (min 6 caractères)
+   * @param {string} password - Mot de passe (min 12 caractères avec complexité)
    * @param {Object} agenceData - Données de l'agence {nom, telephone, adresse}
    * @returns {Promise<Object>} - User et agenceData
    */
@@ -35,12 +101,16 @@ class AuthService {
       throw new Error('Firebase n\'est pas configuré. Veuillez ajouter vos clés dans le fichier .env')
     }
 
+    // Valider la force du mot de passe
+    const passwordValidation = this.validatePasswordStrength(password)
+    if (!passwordValidation.isValid) {
+      throw new Error(passwordValidation.message)
+    }
+
     try {
       // 1. Créer le compte utilisateur dans Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(auth, email, password)
       const user = userCredential.user
-
-      logger.info('Utilisateur Firebase créé:', user.uid)
 
       // 2. Mettre à jour le profil avec le nom de l'agence
       await updateProfile(user, {
@@ -59,7 +129,6 @@ class AuthService {
       }
 
       await setDoc(doc(db, 'agences', user.uid), agenceDoc)
-      logger.info('Document agence créé dans Firestore:', user.uid)
 
       return {
         user,
@@ -73,7 +142,7 @@ class AuthService {
         'auth/email-already-in-use': 'Cette adresse email est déjà utilisée',
         'auth/invalid-email': 'Adresse email invalide',
         'auth/operation-not-allowed': 'Cette opération n\'est pas autorisée actuellement',
-        'auth/weak-password': 'Le mot de passe doit contenir au moins 6 caractères',
+        'auth/weak-password': 'Le mot de passe ne respecte pas les critères de sécurité requis',
         'auth/network-request-failed': 'Erreur de connexion. Vérifiez votre connexion Internet'
       }
 
@@ -82,7 +151,7 @@ class AuthService {
   }
 
   /**
-   * Connexion d'une agence existante
+   * Connexion d'une agence existante avec limitation de débit
    * @param {string} email - Email de l'agence
    * @param {string} password - Mot de passe
    * @returns {Promise<Object>} - User et agenceData
@@ -92,19 +161,27 @@ class AuthService {
       throw new Error('Firebase n\'est pas configuré. Veuillez ajouter vos clés dans le fichier .env')
     }
 
+    // Vérifier la limitation de débit AVANT la tentative de connexion
+    const rateCheck = rateLimiter.checkLimit(email)
+    if (rateCheck.isLocked) {
+      logger.warn(`Login attempt blocked for ${email} - rate limit exceeded`)
+      throw new Error(rateCheck.message)
+    }
+
     try {
       // 1. Connexion Firebase Auth
       const userCredential = await signInWithEmailAndPassword(auth, email, password)
       const user = userCredential.user
 
-      logger.info('Connexion réussie:', user.uid)
-
       // 2. Récupérer les données de l'agence depuis Firestore
       const agenceDoc = await getDoc(doc(db, 'agences', user.uid))
 
       if (!agenceDoc.exists()) {
-        throw new Error('Données de l\'agence introuvables')
+        throw new Error('Identifiants invalides')
       }
+
+      // Connexion réussie - réinitialiser le compteur
+      rateLimiter.reset(email)
 
       return {
         user,
@@ -113,17 +190,38 @@ class AuthService {
     } catch (error) {
       logger.error('Erreur lors de la connexion:', error)
 
+      // Enregistrer la tentative échouée pour rate limiting
+      // Seulement pour les erreurs d'authentification, pas les erreurs réseau
+      const authErrors = [
+        'auth/invalid-email',
+        'auth/user-not-found',
+        'auth/wrong-password',
+        'auth/invalid-credential',
+        'auth/user-disabled'
+      ]
+
+      if (authErrors.includes(error.code)) {
+        const updatedLimit = rateLimiter.recordFailedAttempt(email)
+
+        if (updatedLimit.isLocked) {
+          throw new Error(updatedLimit.message)
+        } else if (updatedLimit.remainingAttempts !== undefined) {
+          throw new Error(`Identifiants invalides. ${updatedLimit.remainingAttempts} tentative(s) restante(s) avant verrouillage temporaire.`)
+        }
+      }
+
+      // Messages d'erreur génériques pour éviter l'énumération d'utilisateurs
       const errorMessages = {
-        'auth/invalid-email': 'Adresse email invalide',
-        'auth/user-disabled': 'Ce compte a été désactivé',
-        'auth/user-not-found': 'Email ou mot de passe incorrect',
-        'auth/wrong-password': 'Email ou mot de passe incorrect',
-        'auth/invalid-credential': 'Email ou mot de passe incorrect',
-        'auth/too-many-requests': 'Trop de tentatives de connexion. Veuillez réessayer plus tard',
+        'auth/invalid-email': 'Identifiants invalides',
+        'auth/user-disabled': 'Ce compte a été désactivé. Contactez le support.',
+        'auth/user-not-found': 'Identifiants invalides',
+        'auth/wrong-password': 'Identifiants invalides',
+        'auth/invalid-credential': 'Identifiants invalides',
+        'auth/too-many-requests': 'Trop de tentatives. Veuillez réessayer plus tard',
         'auth/network-request-failed': 'Erreur de connexion. Vérifiez votre connexion Internet'
       }
 
-      throw new Error(errorMessages[error.code] || 'Une erreur est survenue lors de la connexion. Veuillez réessayer plus tard.')
+      throw new Error(errorMessages[error.code] || 'Une erreur est survenue. Veuillez réessayer.')
     }
   }
 
@@ -138,7 +236,6 @@ class AuthService {
 
     try {
       await signOut(auth)
-      logger.info('Déconnexion réussie')
     } catch (error) {
       logger.error('Erreur lors de la déconnexion:', error)
       throw new Error('Une erreur est survenue lors de la déconnexion. Veuillez réessayer.')
@@ -235,7 +332,6 @@ class AuthService {
 
       // 2. Mettre à jour le mot de passe
       await updatePassword(user, newPassword)
-      logger.info('Mot de passe modifié avec succès')
     } catch (error) {
       logger.error('Erreur lors du changement de mot de passe:', error)
 

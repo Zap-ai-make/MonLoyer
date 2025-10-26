@@ -1,6 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, memo } from 'react'
 
-function ProgressBar({ percentage = 0, height = 12, color = '#00B894', bgColor = '#E9ECEF', showLabel = true, label = '' }) {
+/**
+ * Composant ProgressBar - Barre de progression animée
+ * @param {Object} props
+ * @param {number} props.percentage - Pourcentage de progression (0-100)
+ * @param {number} props.height - Hauteur de la barre en pixels
+ * @param {string} props.color - Couleur de la progression
+ * @param {string} props.bgColor - Couleur de fond
+ * @param {boolean} props.showLabel - Afficher le label et pourcentage
+ * @param {string} props.label - Texte du label
+ */
+const ProgressBar = memo(function ProgressBar({ percentage = 0, height = 12, color = '#00B894', bgColor = '#E9ECEF', showLabel = true, label = '' }) {
   const [animatedPercentage, setAnimatedPercentage] = useState(0)
 
   useEffect(() => {
@@ -51,6 +61,6 @@ function ProgressBar({ percentage = 0, height = 12, color = '#00B894', bgColor =
       </div>
     </div>
   )
-}
+})
 
 export default ProgressBar

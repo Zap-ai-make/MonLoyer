@@ -1,9 +1,9 @@
-# robots.txt pour MonLoyer
+# robots.txt pour Woning.cloud
 User-agent: *
 Allow: /
 
 # Sitemap
-Sitemap: https://monloyer.netlify.app/sitemap.xml
+Sitemap: https://woning.cloud/sitemap.xml
 
 # Désactiver l'indexation des fichiers de configuration
 Disallow: /*.json$

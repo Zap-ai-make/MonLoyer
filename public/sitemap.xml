@@ -1,56 +1,56 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://monloyer.netlify.app/</loc>
-    <lastmod>2025-10-05</lastmod>
+    <loc>https://woning.cloud/</loc>
+    <lastmod>2025-10-24</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://monloyer.netlify.app/dashboard</loc>
-    <lastmod>2025-10-05</lastmod>
+    <loc>https://woning.cloud/dashboard</loc>
+    <lastmod>2025-10-24</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://monloyer.netlify.app/proprietaires</loc>
-    <lastmod>2025-10-05</lastmod>
+    <loc>https://woning.cloud/proprietaires</loc>
+    <lastmod>2025-10-24</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://monloyer.netlify.app/biens</loc>
-    <lastmod>2025-10-05</lastmod>
+    <loc>https://woning.cloud/biens</loc>
+    <lastmod>2025-10-24</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://monloyer.netlify.app/locataires</loc>
-    <lastmod>2025-10-05</lastmod>
+    <loc>https://woning.cloud/locataires</loc>
+    <lastmod>2025-10-24</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://monloyer.netlify.app/paiements</loc>
-    <lastmod>2025-10-05</lastmod>
+    <loc>https://woning.cloud/paiements</loc>
+    <lastmod>2025-10-24</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://monloyer.netlify.app/carte</loc>
-    <lastmod>2025-10-05</lastmod>
+    <loc>https://woning.cloud/carte</loc>
+    <lastmod>2025-10-24</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://monloyer.netlify.app/archives</loc>
-    <lastmod>2025-10-05</lastmod>
+    <loc>https://woning.cloud/archives</loc>
+    <lastmod>2025-10-24</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://monloyer.netlify.app/settings</loc>
-    <lastmod>2025-10-05</lastmod>
+    <loc>https://woning.cloud/settings</loc>
+    <lastmod>2025-10-24</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>

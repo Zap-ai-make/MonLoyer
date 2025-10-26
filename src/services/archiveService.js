@@ -42,15 +42,12 @@ class ArchiveService {
       switch (action) {
         case 'add':
           await firestoreService.addDocument(agenceId, collection, { ...cleanData, id })
-          logger.info(`Archive ${collection} synchronisée (add) vers Firestore:`, id)
           break
         case 'update':
           await firestoreService.updateDocument(agenceId, collection, id, cleanData)
-          logger.info(`Archive ${collection} synchronisée (update) vers Firestore:`, id)
           break
         case 'delete':
           await firestoreService.deleteDocument(agenceId, collection, id)
-          logger.info(`Archive ${collection} synchronisée (delete) vers Firestore:`, id)
           break
       }
     } catch (error) {

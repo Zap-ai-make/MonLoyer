@@ -1,10 +1,10 @@
-# MonLoyer CRM - Système de Gestion Immobilière
+# Woning.cloud - Système de Gestion Immobilière
 
-MonLoyer est un CRM simple et intuitif conçu spécifiquement pour les agences immobilières du Burkina Faso. Il permet de gérer efficacement les propriétaires, biens immobiliers, locataires et le suivi des paiements de loyers.
+Woning.cloud est un CRM simple et intuitif conçu spécifiquement pour les agences immobilières du Burkina Faso. Il permet de gérer efficacement les propriétaires, biens immobiliers, locataires et le suivi des paiements de loyers.
 
 ## ✨ Nouveauté : Intégration Firebase Cloud
 
-MonLoyer supporte maintenant **Firebase** pour le stockage cloud et l'authentification multi-agences ! 🔥
+Woning.cloud supporte maintenant **Firebase** pour le stockage cloud et l'authentification multi-agences ! 🔥
 
 - **Mode Local** : Données dans le navigateur (localStorage) - aucune configuration requise
 - **Mode Cloud** : Données synchronisées dans Firebase - nécessite configuration
@@ -23,7 +23,7 @@ MonLoyer supporte maintenant **Firebase** pour le stockage cloud et l'authentifi
 ```bash
 # Cloner le projet
 git clone <url-du-projet>
-cd MonLoyer
+cd woning-cloud
 
 # Installer les dépendances
 npm install
@@ -235,4 +235,4 @@ Pour toute question ou suggestion d'amélioration, n'hésitez pas à nous contac
 
 ---
 
-**MonLoyer CRM v1.0.0** - Développé pour simplifier la gestion immobilière au Burkina Faso
+**Woning.cloud v1.3.5** - Développé pour simplifier la gestion immobilière au Burkina Faso

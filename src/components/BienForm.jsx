@@ -91,8 +91,13 @@ function BienForm({ editingBien = null, onClose, onSuccess }) {
 
     setLoading(true)
     try {
-      // Sanitizer les données avant envoi
+      // Sanitiser les données avant envoi
       const sanitizedData = sanitizeObject(formData, SANITIZATION_RULES.bien)
+
+      // Préserver les images (base64) qui ne doivent pas être sanitisées
+      if (formData.images && formData.images.length > 0) {
+        sanitizedData.images = formData.images
+      }
 
       let savedBien
       if (editingBien) {

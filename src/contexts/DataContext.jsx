@@ -31,8 +31,6 @@ export function DataProvider({ children }) {
       try {
         // Si l'utilisateur est connecté, définir son agence et charger ses données
         if (isAuthenticated && user?.uid) {
-          logger.info('Utilisateur connecté, chargement des données pour:', user.uid)
-
           // Définir l'agence courante
           dataService.setCurrentAgence(user.uid)
 
@@ -42,7 +40,6 @@ export function DataProvider({ children }) {
           }
         } else {
           // Mode non connecté - pas de préfixe agence
-          logger.info('Mode non connecté')
           dataService.setCurrentAgence(null)
         }
 
@@ -55,7 +52,6 @@ export function DataProvider({ children }) {
           documents: dataService.getDocuments?.() || []
         })
 
-        logger.info('Données chargées avec succès')
       } catch (error) {
         logger.error('Erreur lors du chargement des données:', { error })
       } finally {
@@ -81,7 +77,6 @@ export function DataProvider({ children }) {
       dataService.invalidateCache(entityType)
 
       const freshData = loaders[entityType]()
-      logger.info(`Rafraîchissement de ${entityType}:`, freshData.length, 'éléments')
 
       setData(prev => ({
         ...prev,

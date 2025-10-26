@@ -1,52 +1,87 @@
 import { useState, useEffect } from 'react'
-import { GoogleMap, useLoadScript, Marker, MarkerClusterer } from '@react-google-maps/api'
+import { GoogleMap, useLoadScript } from '@react-google-maps/api'
 import dataService from '../services/dataService'
 import BienDrawer from '../components/BienDrawer'
 import LoadingSpinner from '../components/LoadingSpinner'
-import logger from '../utils/logger'
+import { isOccupe } from '../utils/bienUtils'
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
 
-// Supprimer les avertissements de dépréciation Google Maps dans la console
-const originalWarn = logger.warn
-logger.warn = (...args) => {
-  const message = args[0]?.toString() || ''
-  if (message.includes('google.maps.Marker is deprecated') ||
-      message.includes('AdvancedMarkerElement')) {
-    return
-  }
-  originalWarn.apply(console, args)
-}
+// Centre par défaut sur Ouagadougou, Burkina Faso
+const DEFAULT_CENTER = { lat: 12.3714, lng: -1.5197 }
+const DEFAULT_ZOOM = 13
 
 function Carte() {
+  // Charger l'API Google Maps avec version stable
   const { isLoaded, loadError } = useLoadScript({
     googleMapsApiKey: GOOGLE_MAPS_API_KEY,
-    version: "weekly",
+    version: "3.55" // Version stable testée
   })
 
+  // States
   const [biens, setBiens] = useState([])
   const [selectedBien, setSelectedBien] = useState(null)
   const [mapType, setMapType] = useState('hybrid')
   const [map, setMap] = useState(null)
+  const [center, setCenter] = useState(DEFAULT_CENTER)
 
-  // Centre par défaut sur Ouagadougou, Burkina Faso
-  const [center, setCenter] = useState({ lat: 12.3714, lng: -1.5197 })
+  // Charger les biens au montage du composant
+  useEffect(() => {
+    loadBiens()
+  }, [])
 
-  // Fonction pour filtrer les biens avec coordonnées GPS valides
-  const filterBiensWithValidCoords = (biens) => {
-    return biens.filter(bien => {
+  // Références pour les marqueurs natifs
+  const [markers, setMarkers] = useState([])
+
+  // Créer les marqueurs natifs quand la carte et les biens sont prêts
+  useEffect(() => {
+    if (!map || !window.google || biens.length === 0) return
+
+    // Nettoyer les anciens marqueurs
+    markers.forEach(marker => marker.setMap(null))
+
+    // Créer les nouveaux marqueurs avec l'API native
+    const newMarkers = biens.map((bien) => {
       const lat = parseFloat(bien.latitude)
       const lng = parseFloat(bien.longitude)
-      return !isNaN(lat) && !isNaN(lng) &&
-             lat >= -90 && lat <= 90 &&
-             lng >= -180 && lng <= 180
-    })
-  }
+      const occupied = isOccupe(bien)
 
-  useEffect(() => {
+      const marker = new window.google.maps.Marker({
+        position: { lat, lng },
+        map: map,
+        title: `${bien.adresse || bien.nomCour || 'Bien'} - ${occupied ? 'Occupé' : 'Libre'}`,
+        animation: window.google.maps.Animation.DROP,
+        icon: {
+          path: window.google.maps.SymbolPath.CIRCLE,
+          scale: 10,
+          fillColor: occupied ? '#10B981' : '#EF4444',
+          fillOpacity: 1,
+          strokeColor: '#FFFFFF',
+          strokeWeight: 2
+        }
+      })
+
+      marker.addListener('click', () => {
+        setSelectedBien(bien)
+      })
+
+      return marker
+    })
+
+    setMarkers(newMarkers)
+
+    // Ajuster la vue pour voir tous les biens
+    fitBounds()
+
+    // Cleanup function
+    return () => {
+      newMarkers.forEach(marker => marker.setMap(null))
+    }
+  }, [map, biens])
+
+  const loadBiens = () => {
     const data = dataService.getBiens()
     const biensAvecCoords = filterBiensWithValidCoords(data)
-
     setBiens(biensAvecCoords)
 
     // Centrer sur le premier bien si disponible
@@ -57,9 +92,24 @@ function Carte() {
         lng: parseFloat(firstBien.longitude)
       })
     }
-  }, [])
+  }
 
-  // Fonction pour ajuster la carte pour afficher tous les biens
+  const filterBiensWithValidCoords = (biens) => {
+    return biens.filter(bien => {
+      const lat = parseFloat(bien.latitude)
+      const lng = parseFloat(bien.longitude)
+      const isValid = !isNaN(lat) && !isNaN(lng) &&
+                      lat >= -90 && lat <= 90 &&
+                      lng >= -180 && lng <= 180
+
+      if (!isValid && (bien.latitude || bien.longitude)) {
+        console.warn(`⚠️ Coordonnées invalides pour ${bien.adresse}:`, {lat, lng})
+      }
+
+      return isValid
+    })
+  }
+
   const fitBounds = () => {
     if (!map || biens.length === 0) return
 
@@ -70,64 +120,36 @@ function Carte() {
         lng: parseFloat(bien.longitude)
       })
     })
+
     map.fitBounds(bounds)
-  }
 
-  const isOccupe = (bien) => {
-    // Pour une cour commune, vérifier si au moins une maison est occupée
-    if (bien.type === 'cour_commune' && bien.maisons) {
-      return bien.maisons.some(maison => maison.statut === 'occupee')
-    }
-
-    // Pour un bien simple, vérifier le statut normalisé
-    const statutNormalized = bien.statut?.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    return statutNormalized === 'occupe' || statutNormalized === 'occupee'
-  }
-
-  const getMarkerIcon = (bien) => {
-    const occupied = isOccupe(bien)
-    const color = occupied ? '#10b981' : '#ef4444' // green-500 : red-500
-
-    // Créer un SVG personnalisé moderne
-    const svg = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40">
-        <path d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z"
-              fill="${color}" stroke="white" stroke-width="2"/>
-        <circle cx="16" cy="15" r="6" fill="white" opacity="0.9"/>
-        <text x="16" y="19" font-size="12" font-weight="bold" text-anchor="middle" fill="${color}">
-          ${occupied ? '✓' : '○'}
-        </text>
-      </svg>
-    `
-
-    return {
-      url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-      scaledSize: new window.google.maps.Size(32, 40),
-      anchor: new window.google.maps.Point(16, 40)
+    // Si un seul bien, ajuster le zoom pour ne pas être trop proche
+    if (biens.length === 1) {
+      setTimeout(() => map.setZoom(15), 100)
     }
   }
 
   const handleBienUpdate = (updatedBien) => {
     if (updatedBien) {
-      setBiens(prevBiens =>
-        prevBiens.map(b => b.id === updatedBien.id ? updatedBien : b)
-      )
+      loadBiens()
+      setSelectedBien(updatedBien)
     } else {
-      // Bien supprimé, recharger
-      const data = dataService.getBiens()
-      setBiens(filterBiensWithValidCoords(data))
+      setSelectedBien(null)
+      loadBiens()
     }
-    setSelectedBien(null)
   }
 
+  // Gestion des erreurs de chargement
   if (loadError) {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-50 p-4">
         <div className="max-w-md bg-white rounded-lg shadow-xl p-8 text-center">
           <div className="text-red-500 text-5xl mb-4">🗺️</div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Impossible de charger la carte</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">
+            Impossible de charger la carte
+          </h2>
           <p className="text-gray-600 mb-6">
-            Impossible de charger la carte. Veuillez vérifier votre connexion Internet ou réessayer plus tard.
+            Erreur de chargement de Google Maps. Vérifiez votre connexion Internet.
           </p>
           <button
             onClick={() => window.location.reload()}
@@ -140,14 +162,13 @@ function Carte() {
     )
   }
 
+  // Chargement en cours
   if (!isLoaded) {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="mb-4">
-            <LoadingSpinner size="large" />
-          </div>
-          <p className="text-gray-600">Chargement de la carte...</p>
+          <LoadingSpinner size="large" />
+          <p className="text-gray-600 mt-4">Chargement de la carte...</p>
         </div>
       </div>
     )
@@ -164,6 +185,7 @@ function Carte() {
               {biens.length} bien{biens.length > 1 ? 's' : ''} géolocalisé{biens.length > 1 ? 's' : ''}
             </p>
           </div>
+
           <div className="flex items-center gap-4 flex-wrap">
             {/* Sélecteur de type de carte */}
             <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
@@ -230,74 +252,45 @@ function Carte() {
         <GoogleMap
           mapContainerStyle={{ width: '100%', height: '100%' }}
           center={center}
-          zoom={13}
+          zoom={DEFAULT_ZOOM}
           mapTypeId={mapType}
-          onLoad={setMap}
+          onLoad={(mapInstance) => {
+            console.log('🗺️ Carte chargée avec succès')
+            setMap(mapInstance)
+          }}
           options={{
-            // Navigation et contrôles
             zoomControl: true,
             streetViewControl: true,
             mapTypeControl: false,
             fullscreenControl: true,
-
-            // Activer toutes les interactions avec la souris
             draggable: true,
             scrollwheel: true,
             disableDoubleClickZoom: false,
-
-            // Options de navigation
-            gestureHandling: 'greedy', // Permet scroll/zoom sans Ctrl
-
-            // Style et UI
+            gestureHandling: 'greedy',
             clickableIcons: true,
-
-            // Contrôles de zoom
             zoomControlOptions: {
               position: 9 // RIGHT_TOP
-            },
-
-            // Désactiver les avertissements de dépréciation
-            mapId: undefined
+            }
           }}
         >
-          <MarkerClusterer
-            options={{
-              imagePath: 'https://developers.google.com/maps/documentation/javascript/examples/markerclusterer/m',
-              gridSize: 60,
-              maxZoom: 15
-            }}
-          >
-            {(clusterer) =>
-              biens.map((bien) => (
-                <Marker
-                  key={bien.id}
-                  position={{
-                    lat: parseFloat(bien.latitude),
-                    lng: parseFloat(bien.longitude)
-                  }}
-                  onClick={() => setSelectedBien(bien)}
-                  icon={getMarkerIcon(bien)}
-                  title={bien.adresse || bien.nomCour || 'Bien immobilier'}
-                  clusterer={clusterer}
-                />
-              ))
-            }
-          </MarkerClusterer>
+          {/* Les marqueurs sont maintenant créés via l'API native Google Maps (voir useEffect ci-dessus) */}
         </GoogleMap>
 
         {/* Message si aucun bien géolocalisé */}
         {biens.length === 0 && (
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl p-8 text-center z-20">
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl p-8 text-center z-20 max-w-md">
             <div className="text-gray-400 text-5xl mb-4">🗺️</div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Aucun bien géolocalisé</h3>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">
+              Aucun bien géolocalisé
+            </h3>
             <p className="text-gray-600 text-sm">
-              Ajoutez des coordonnées GPS à vos biens pour les voir sur la carte.
+              Ajoutez des coordonnées GPS (latitude/longitude) à vos biens pour les voir apparaître sur la carte.
             </p>
           </div>
         )}
       </div>
 
-      {/* Modal latéral pour les détails du bien */}
+      {/* Drawer pour les détails du bien */}
       {selectedBien && (
         <BienDrawer
           bien={selectedBien}

@@ -3,6 +3,8 @@ import { X, MapPin, DollarSign, User, Phone, Home, Edit2, Save, Trash2, ChevronL
 import dataService from '../services/dataService'
 import { useNavigate } from 'react-router-dom'
 import Badge from './Badge'
+import { getTypeLabel } from '../utils/bienUtils'
+import logger from '../utils/logger'
 
 function BienDrawer({ bien, onClose, onUpdate, isEditing = false }) {
   const navigate = useNavigate()
@@ -62,20 +64,6 @@ function BienDrawer({ bien, onClose, onUpdate, isEditing = false }) {
     }
   }
 
-
-  const getTypeLabel = (type) => {
-    switch (type) {
-      case 'cour_unique':
-        return 'Cour unique (villa)'
-      case 'cour_commune':
-        return 'Cour commune'
-      case 'magasin':
-        return 'Magasin'
-      default:
-        return type
-    }
-  }
-
   if (!bien) return null
 
   return (
@@ -117,6 +105,10 @@ function BienDrawer({ bien, onClose, onUpdate, isEditing = false }) {
                   src={bien.images[currentImageIndex]}
                   alt={`Bien ${currentImageIndex + 1}`}
                   className="w-full h-full object-cover"
+                  onError={(e) => {
+                    logger.error('Erreur chargement image:', bien.images[currentImageIndex])
+                    e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" fill="%23999"%3EImage%3C/text%3E%3C/svg%3E'
+                  }}
                 />
               </div>
 

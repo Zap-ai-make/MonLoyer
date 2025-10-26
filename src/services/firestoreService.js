@@ -54,7 +54,6 @@ class FirestoreService {
 
       // Utiliser setDoc au lieu de addDoc pour forcer l'utilisation de l'ID fourni
       await setDoc(docRef, docData)
-      logger.info(`Document ajouté dans ${collectionName}:`, data.id)
 
       return data.id
     } catch (error) {
@@ -103,7 +102,6 @@ class FirestoreService {
         })
       })
 
-      logger.info(`${documents.length} documents récupérés de ${collectionName}`)
       return documents
     } catch (error) {
       logger.error(`Erreur récupération ${collectionName}:`, error)
@@ -134,7 +132,6 @@ class FirestoreService {
         }
       }
 
-      logger.warn(`Document non trouvé: ${collectionName}/${documentId}`)
       return null
     } catch (error) {
       logger.error(`Erreur récupération document ${collectionName}:`, error)
@@ -163,7 +160,6 @@ class FirestoreService {
       }
 
       await updateDoc(docRef, updateData)
-      logger.info(`Document mis à jour: ${collectionName}/${documentId}`)
     } catch (error) {
       logger.error(`Erreur mise à jour ${collectionName}:`, error)
       throw new Error(`Erreur lors de la mise à jour: ${error.message}`)
@@ -185,7 +181,6 @@ class FirestoreService {
     try {
       const docRef = doc(db, 'agences', agenceId, collectionName, documentId)
       await deleteDoc(docRef)
-      logger.info(`Document supprimé: ${collectionName}/${documentId}`)
     } catch (error) {
       logger.error(`Erreur suppression ${collectionName}:`, error)
       throw new Error(`Erreur lors de la suppression: ${error.message}`)
@@ -234,7 +229,6 @@ class FirestoreService {
             })
           })
 
-          logger.info(`Mise à jour temps réel: ${documents.length} documents dans ${collectionName}`)
           callback(documents)
         },
         (error) => {

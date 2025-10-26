@@ -30,7 +30,6 @@ export function AuthProvider({ children }) {
       setAgenceData(null)
       setIsAuthenticated(false)
       setLoading(false)
-      logger.info('Mode local: Firebase non configuré')
       return
     }
 
@@ -43,7 +42,6 @@ export function AuthProvider({ children }) {
         try {
           const data = await authService.getCurrentAgenceData()
           setAgenceData(data)
-          logger.info('Utilisateur connecté:', firebaseUser.uid)
         } catch (error) {
           logger.error('Erreur récupération données agence:', error)
           setAgenceData(null)
@@ -52,7 +50,6 @@ export function AuthProvider({ children }) {
         setUser(null)
         setAgenceData(null)
         setIsAuthenticated(false)
-        logger.info('Utilisateur déconnecté')
       }
 
       setLoading(false)
@@ -71,7 +68,6 @@ export function AuthProvider({ children }) {
       setUser(result.user)
       setAgenceData(result.agenceData)
       setIsAuthenticated(true)
-      logger.info('Connexion réussie')
       return result
     } catch (error) {
       logger.error('Erreur connexion:', error)
@@ -91,7 +87,6 @@ export function AuthProvider({ children }) {
       setUser(result.user)
       setAgenceData(result.agenceData)
       setIsAuthenticated(true)
-      logger.info('Inscription réussie')
       return result
     } catch (error) {
       logger.error('Erreur inscription:', error)
@@ -110,7 +105,6 @@ export function AuthProvider({ children }) {
 
       // Nettoyer les données localStorage de l'agence avant de se déconnecter
       dataService.clearCurrentAgenceData()
-      logger.info('Données de l\'agence nettoyées du localStorage')
 
       // Déconnexion Firebase
       await authService.logoutAgence()
@@ -123,7 +117,6 @@ export function AuthProvider({ children }) {
       // Réinitialiser le préfixe agence
       dataService.setCurrentAgence(null)
 
-      logger.info('Déconnexion réussie')
     } catch (error) {
       logger.error('Erreur déconnexion:', error)
       throw error
@@ -139,7 +132,6 @@ export function AuthProvider({ children }) {
     try {
       const data = await authService.getCurrentAgenceData()
       setAgenceData(data)
-      logger.info('Données agence rafraîchies')
     } catch (error) {
       logger.error('Erreur rafraîchissement:', error)
       throw error

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Users, Home, User as UserIcon, TrendingUp, Percent, DollarSign, Clock, AlertCircle, Plus, Sparkles, Trophy } from 'lucide-react'
+import { Users, Home, User as UserIcon, TrendingUp, Percent, Clock, AlertCircle, Plus, Sparkles, Trophy } from 'lucide-react'
+import FCFAIcon from '../components/icons/FCFAIcon'
 import dataService from '../services/dataService'
 import { useData } from '../contexts/DataContext'
 import { useAuth } from '../contexts/AuthContext'
@@ -47,6 +48,8 @@ import ProgressBar from '../components/ProgressBar'
 import Badge from '../components/Badge'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { formatCurrency } from '../utils/formatters'
+import { useCounterAnimation } from '../hooks/useCounterAnimation'
+import AnimatedNumber from '../components/AnimatedNumber'
 import {
   HEADER_CARD_STYLE,
   HEADER_TITLE_STYLE,
@@ -100,35 +103,77 @@ function Dashboard() {
     return () => clearInterval(interval)
   }, [loadStats])
 
-  // Générer données réelles pour graphiques (6 derniers mois) - Mémorisé
+  // État pour la période sélectionnée
+  const [selectedPeriod, setSelectedPeriod] = useState(30)
+
+  // Générer données pour graphiques selon la période sélectionnée - Mémorisé
   const monthlyData = useMemo(() => {
     const currentDate = new Date()
-    const currentYear = currentDate.getFullYear()
-    const currentMonth = currentDate.getMonth() // 0-11
-
     const data = []
-    const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']
 
-    // Récupérer données des 6 derniers mois
-    for (let i = 5; i >= 0; i--) {
-      const targetMonth = currentMonth - i
-      const targetYear = currentYear + Math.floor(targetMonth / 12)
-      const adjustedMonth = ((targetMonth % 12) + 12) % 12
+    if (selectedPeriod <= 30) {
+      // Mode jours (7j ou 30j) - Grouper les paiements par jour
+      const paiements = dataService.getPaiements()
+      const dayLabels = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam']
 
-      const monthStats = stats.monthlyData?.[adjustedMonth] || {
-        montant: 0,
-        attendu: stats.totalAttenduMoisCourant || 0
+      for (let i = selectedPeriod - 1; i >= 0; i--) {
+        const targetDate = new Date(currentDate)
+        targetDate.setDate(currentDate.getDate() - i)
+        targetDate.setHours(0, 0, 0, 0)
+
+        const nextDate = new Date(targetDate)
+        nextDate.setDate(targetDate.getDate() + 1)
+
+        // Calculer le montant reçu ce jour
+        const montantJour = paiements
+          .filter(p => {
+            const pDate = new Date(p.datePaiement)
+            return pDate >= targetDate && pDate < nextDate
+          })
+          .reduce((sum, p) => sum + (p.montant || 0), 0)
+
+        // Label du jour
+        const dayLabel = selectedPeriod === 7
+          ? dayLabels[targetDate.getDay()]
+          : `${targetDate.getDate()}/${targetDate.getMonth() + 1}`
+
+        data.push({
+          mois: dayLabel,
+          montant: montantJour,
+          attendu: stats.totalAttenduMoisCourant / 30 // Moyenne journalière attendue
+        })
       }
+    } else {
+      // Mode 90 jours - Grouper par semaine
+      const paiements = dataService.getPaiements()
+      const weeksCount = Math.ceil(selectedPeriod / 7)
 
-      data.push({
-        mois: monthNames[adjustedMonth],
-        montant: monthStats.montant || 0,
-        attendu: monthStats.attendu || stats.totalAttenduMoisCourant || 0
-      })
+      for (let i = weeksCount - 1; i >= 0; i--) {
+        const weekStart = new Date(currentDate)
+        weekStart.setDate(currentDate.getDate() - (i + 1) * 7)
+        weekStart.setHours(0, 0, 0, 0)
+
+        const weekEnd = new Date(weekStart)
+        weekEnd.setDate(weekStart.getDate() + 7)
+
+        // Calculer le montant de la semaine
+        const montantSemaine = paiements
+          .filter(p => {
+            const pDate = new Date(p.datePaiement)
+            return pDate >= weekStart && pDate < weekEnd
+          })
+          .reduce((sum, p) => sum + (p.montant || 0), 0)
+
+        data.push({
+          mois: `S${weeksCount - i}`,
+          montant: montantSemaine,
+          attendu: (stats.totalAttenduMoisCourant / 30) * 7 // Moyenne hebdomadaire
+        })
+      }
     }
 
     return data
-  }, [stats.monthlyData, stats.totalAttenduMoisCourant])
+  }, [stats.monthlyData, stats.totalAttenduMoisCourant, selectedPeriod])
 
   // Cartes statistiques principales avec style premium - Mémorisé
   const statCards = useMemo(() => [
@@ -137,7 +182,8 @@ function Dashboard() {
       value: stats.totalProprietaires || 0,
       icon: Users,
       iconColor: '#003C57',
-      iconBg: 'rgba(0, 60, 87, 0.1)'
+      iconBg: 'rgba(0, 60, 87, 0.1)',
+      link: '/proprietaires'
     },
     {
       title: 'Biens Immobiliers',
@@ -145,7 +191,8 @@ function Dashboard() {
       subtitle: `${stats.totalUnites || 0} unités`,
       icon: Home,
       iconColor: '#00B894',
-      iconBg: 'rgba(0, 184, 148, 0.1)'
+      iconBg: 'rgba(0, 184, 148, 0.1)',
+      link: '/biens'
     },
     {
       title: 'Locataires Actifs',
@@ -153,7 +200,8 @@ function Dashboard() {
       subtitle: `sur ${stats.totalLocataires || 0} total`,
       icon: UserIcon,
       iconColor: '#F39C12',
-      iconBg: 'rgba(243, 156, 18, 0.1)'
+      iconBg: 'rgba(243, 156, 18, 0.1)',
+      link: '/locataires'
     },
     {
       title: 'Taux d\'Occupation',
@@ -162,7 +210,8 @@ function Dashboard() {
       icon: Percent,
       iconColor: '#003C57',
       iconBg: 'rgba(0, 60, 87, 0.1)',
-      tooltip: 'Pourcentage d\'unités actuellement louées'
+      tooltip: 'Pourcentage d\'unités actuellement louées',
+      link: '/biens'
     }
   ], [stats.totalProprietaires, stats.totalBiens, stats.totalUnites, stats.locatairesActifs, stats.totalLocataires, stats.tauxOccupation, stats.unitesOccupees])
 
@@ -172,7 +221,7 @@ function Dashboard() {
       title: `Revenus ${stats.moisCourant || ''} ${stats.anneeCourante || ''}`,
       value: formatCurrency(stats.revenusMoisCourant || 0),
       subtitle: `sur ${formatCurrency(stats.totalAttenduMoisCourant || 0, false)} attendu`,
-      icon: DollarSign,
+      icon: FCFAIcon,
       iconColor: '#00B894',
       iconBg: 'rgba(0, 184, 148, 0.1)',
       bgColor: '#FFFFFF',
@@ -225,7 +274,7 @@ function Dashboard() {
         <div className="relative z-10 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold mb-2 flex items-center gap-3" style={HEADER_TITLE_STYLE}>
-              Tableau de bord
+              Bienvenue à l'agence {agencyName}
               <Sparkles className="w-7 h-7 animate-pulse" style={SPARKLES_ICON_STYLE} />
             </h1>
             <p className="text-lg" style={HEADER_SUBTITLE_STYLE}>
@@ -247,6 +296,7 @@ function Dashboard() {
               key={index}
               className="rounded-2xl p-6 transition-all duration-300 hover:scale-105 cursor-pointer"
               style={{ ...STAT_CARD_STYLE, ...getSlideUpAnimation(index) }}
+              onClick={() => card.link && navigate(card.link)}
               onMouseEnter={(e) => {
                 e.currentTarget.style.boxShadow = STAT_CARD_HOVER_STYLE.boxShadow
               }}
@@ -276,7 +326,17 @@ function Dashboard() {
                     className="text-4xl font-bold mb-2"
                     style={STAT_VALUE_STYLE}
                   >
-                    {card.value}
+                    {typeof card.value === 'string' && card.value.includes('%') ? (
+                      <AnimatedNumber
+                        value={parseInt(card.value)}
+                        suffix="%"
+                        formatNumber={false}
+                      />
+                    ) : typeof card.value === 'number' ? (
+                      <AnimatedNumber value={card.value} />
+                    ) : (
+                      card.value
+                    )}
                   </p>
                   {card.subtitle && (
                     <p className="text-sm" style={STAT_LABEL_STYLE}>
@@ -431,9 +491,13 @@ function Dashboard() {
             <h3 className="text-xl font-bold" style={{ color: '#212529', fontFamily: 'Poppins, sans-serif' }}>
               Évolution des Revenus
             </h3>
-            <Tooltip content="Comparaison revenus reçus vs attendus sur 6 mois" />
+            <Tooltip content={`Comparaison revenus reçus vs attendus sur ${selectedPeriod} jours`} />
           </div>
-          <MonthlyRevenueChart data={monthlyData} />
+          <MonthlyRevenueChart
+            data={monthlyData}
+            showPeriodSelector={true}
+            onPeriodChange={setSelectedPeriod}
+          />
         </div>
       </div>
 
@@ -494,7 +558,7 @@ function Dashboard() {
             className="action-card action-card-success group flex items-center p-5 rounded-2xl"
           >
             <div className="p-3 rounded-xl mr-3 group-hover:scale-110 transition-transform" style={{ backgroundColor: 'rgba(0, 184, 148, 0.1)' }}>
-              <DollarSign className="w-7 h-7" style={{ color: '#00B894' }} />
+              <FCFAIcon size={28} className="text-[#00B894]" />
             </div>
             <div className="text-left">
               <p className="font-bold mb-1" style={{ color: '#212529', fontFamily: 'Poppins, sans-serif' }}>Nouveau Paiement</p>

@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
-import { FileText, Download, Trash2, Filter, Search, Sparkles, Upload, Plus, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Eye, FileText, Download, Trash2, Filter, Search, Sparkles, Upload, Plus, ChevronLeft, ChevronRight } from 'lucide-react'
 import documentService from '../services/documentService'
 import dataService from '../services/dataService'
 import { useNotification } from '../contexts/NotificationContext'
+import UniversalModal from '../components/UniversalModal'
 import { COLORS } from '../constants/colors'
 
 function Documents() {
@@ -20,6 +21,7 @@ function Documents() {
     endDate: ''
   })
   const [showFilters, setShowFilters] = useState(false)
+  const [previewModal, setPreviewModal] = useState({ show: false, document: null })
 
   useEffect(() => {
     loadDocuments()
@@ -130,6 +132,10 @@ function Documents() {
     } catch (error) {
       notification.error('Erreur lors du téléchargement')
     }
+  }
+
+  const handlePreview = (document) => {
+    setPreviewModal({ show: true, document })
   }
 
   const handleDelete = (documentId) => {
@@ -450,6 +456,13 @@ function Documents() {
                     <td className="px-3 sm:px-6 py-4 whitespace-nowrap text-right">
                       <div className="flex justify-end gap-1 sm:gap-2">
                         <button
+                          onClick={() => handlePreview(doc)}
+                          className="p-1.5 sm:p-2 rounded-lg hover:bg-blue-50 transition-colors"
+                          title="Prévisualiser"
+                        >
+                          <Eye className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
+                        </button>
+                        <button
                           onClick={() => handleDownload(doc.id)}
                           className="p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 transition-colors"
                           title="Télécharger"
@@ -564,6 +577,62 @@ function Documents() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal de prévisualisation */}
+      {previewModal.show && previewModal.document && (
+        <UniversalModal
+          variant="info"
+          isOpen={previewModal.show}
+          onClose={() => setPreviewModal({ show: false, document: null })}
+          title={`Prévisualisation - ${previewModal.document.filename}`}
+          size="2xl"
+        >
+          <div className="space-y-4">
+            {/* Informations du document */}
+            <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg text-sm">
+              <div>
+                <span className="font-medium text-gray-700">Type:</span>
+                <span className="ml-2 text-gray-900">{getTypeLabel(previewModal.document.type)}</span>
+              </div>
+              <div>
+                <span className="font-medium text-gray-700">Date:</span>
+                <span className="ml-2 text-gray-900">
+                  {new Date(previewModal.document.created_at).toLocaleDateString('fr-FR')}
+                </span>
+              </div>
+              <div>
+                <span className="font-medium text-gray-700">Entité:</span>
+                <span className="ml-2 text-gray-900">{previewModal.document.entityName}</span>
+              </div>
+              <div>
+                <span className="font-medium text-gray-700">Statut:</span>
+                <span className="ml-2">{getStatusBadge(previewModal.document)}</span>
+              </div>
+            </div>
+
+            {/* Prévisualisation PDF */}
+            <div className="border rounded-lg overflow-hidden bg-gray-50" style={{ height: '600px' }}>
+              <iframe
+                src={previewModal.document.url}
+                className="w-full h-full"
+                title="Prévisualisation du document"
+              />
+            </div>
+
+            {/* Bouton de téléchargement dans le modal */}
+            <button
+              onClick={() => handleDownload(previewModal.document.id)}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 text-white rounded-lg transition-colors font-medium"
+              style={{ backgroundColor: COLORS.primary.DEFAULT }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = COLORS.primary.dark}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = COLORS.primary.DEFAULT}
+            >
+              <Download className="w-5 h-5" />
+              Télécharger le document
+            </button>
+          </div>
+        </UniversalModal>
       )}
       </div>
     </div>

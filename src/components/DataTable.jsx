@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
-import { FiSearch, FiChevronLeft, FiChevronRight } from 'react-icons/fi'
+import { Search, ChevronLeft, ChevronRight } from 'lucide-react'
 
 /**
  * DataTable - Composant de tableau réutilisable avec recherche, tri et pagination
@@ -127,7 +127,7 @@ export default function DataTable({
       {searchable && (
         <div className="mb-4">
           <div className="relative">
-            <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
               type="text"
               placeholder="Rechercher..."
@@ -220,7 +220,7 @@ export default function DataTable({
               disabled={currentPage === 1}
               className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <FiChevronLeft />
+              <ChevronLeft className="w-5 h-5" />
             </button>
             <span className="text-sm text-gray-700">
               Page {currentPage} sur {totalPages}
@@ -230,7 +230,7 @@ export default function DataTable({
               disabled={currentPage === totalPages}
               className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <FiChevronRight />
+              <ChevronRight className="w-5 h-5" />
             </button>
           </div>
         </div>

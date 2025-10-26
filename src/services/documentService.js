@@ -75,7 +75,6 @@ class DocumentService {
             // Sauvegarder les métadonnées dans Firestore
             await firestoreService.addDocument(agenceId, 'documents', newDocument)
 
-            logger.info('Document uploadé vers Firebase Storage:', newDocument.id)
           }
         } catch (error) {
           logger.error('Erreur upload Firebase Storage:', error)
@@ -85,7 +84,6 @@ class DocumentService {
 
       documents.push(newDocument)
       storageWrapper.setItem(this.storageKey, documents)
-      logger.info('Document ajouté:', newDocument.id)
       return newDocument
     } catch (error) {
       logger.error('Erreur validation document:', error)
@@ -109,7 +107,6 @@ class DocumentService {
           const agenceId = getCurrentAgenceId()
           if (agenceId) {
             await firestoreService.updateDocument(agenceId, 'documents', id, documents[index])
-            logger.info('Document mis à jour dans Firestore:', id)
           }
         } catch (error) {
           logger.error('Erreur mise à jour Firestore:', error)
@@ -133,7 +130,6 @@ class DocumentService {
         if (agenceId) {
           await storageService.deleteFile(agenceId, doc.storagePath)
           await firestoreService.deleteDocument(agenceId, 'documents', id)
-          logger.info('Document supprimé de Firebase:', id)
         }
       } catch (error) {
         logger.error('Erreur suppression Firebase:', error)

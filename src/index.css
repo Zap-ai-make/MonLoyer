@@ -85,6 +85,32 @@ body {
   }
 }
 
+/* Transitions de pages */
+@keyframes pageSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pageFadeIn {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* Appliquer l'animation de page aux routes */
+.page-container {
+  animation: pageFadeIn 0.4s ease-out;
+}
+
 /* Smooth transitions */
 * {
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
