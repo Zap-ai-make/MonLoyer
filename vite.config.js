@@ -26,9 +26,9 @@ export default defineConfig({
             if (id.includes('firebase') || id.includes('@firebase')) {
               return 'firebase'
             }
-            // Recharts (graphiques) - ~500KB
-            if (id.includes('recharts')) {
-              return 'recharts'
+            // Recharts + react-redux dans le même chunk que react-vendor pour éviter les conflits
+            if (id.includes('recharts') || id.includes('react-redux') || id.includes('@reduxjs/toolkit')) {
+              return 'react-vendor'
             }
             // Google Maps - ~300KB
             if (id.includes('@react-google-maps') || id.includes('googlemaps')) {
