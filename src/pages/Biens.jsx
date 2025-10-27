@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { Edit2, Trash2 } from 'lucide-react'
 import { useData } from '../contexts/DataContext'

@@ -6,6 +6,10 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   base: '/',
+  resolve: {
+    // Forcer une seule instance de React/react-is/react-dom pour éviter les duplications
+    dedupe: ['react', 'react-dom', 'react-is']
+  },
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
@@ -38,9 +42,16 @@ export default defineConfig({
             if (id.includes('zod')) {
               return 'zod'
             }
-            // React core (react, react-dom, react-router)
-            if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
+            // React core (react, react-dom) - SANS react-router pour éviter les duplications
+            if (id.includes('react-dom')) {
               return 'react-vendor'
+            }
+            if (id.includes('react') && !id.includes('react-router') && !id.includes('react-redux')) {
+              return 'react-vendor'
+            }
+            // React Router dans un chunk séparé
+            if (id.includes('react-router')) {
+              return 'react-router'
             }
             // Autres vendors (lucide-react, etc.)
             return 'vendor'
@@ -64,7 +75,7 @@ export default defineConfig({
   },
   // Optimiser les dépendances
   optimizeDeps: {
-    include: ['react', 'react-dom', 'react-router-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+    include: ['react', 'react-dom', 'react-is', 'react-router-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
     exclude: ['@react-google-maps/api'], // Lazy load Google Maps
     esbuildOptions: {
       target: 'es2020'
