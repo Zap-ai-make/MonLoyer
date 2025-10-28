@@ -1,4 +1,4 @@
-import html2pdf from 'html2pdf.js'
+// import html2pdf from 'html2pdf.js' // DÉSACTIVÉ TEMPORAIREMENT - incompatible avec Vite
 import receiptService from './receiptService'
 import storageService from './storageService'
 import { getCurrentAgenceId } from '../utils/firebaseHelpers'
@@ -48,7 +48,9 @@ class PaiementReceiptService {
       }
 
       // Convertir en PDF Blob
-      const pdfBlob = await html2pdf().set(opt).from(receiptElement).outputPdf('blob')
+      // TEMPORAIREMENT DÉSACTIVÉ - html2pdf incompatible avec Vite
+      throw new Error('Génération automatique de reçu temporairement indisponible. Utilisez l\'upload manuel.')
+      // const pdfBlob = await html2pdf().set(opt).from(receiptElement).outputPdf('blob')
 
       // Nettoyer l'élément temporaire
       document.body.removeChild(tempDiv)

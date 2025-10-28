@@ -1,6 +1,25 @@
-import { memo, useState } from 'react'
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import { memo, useState, lazy, Suspense } from 'react'
 import { formatCurrency } from '../utils/formatters'
+
+// Lazy load recharts pour réduire le bundle initial et éviter les conflits de chargement
+const PieChart = lazy(() => import('recharts').then(module => ({ default: module.PieChart })))
+const Pie = lazy(() => import('recharts').then(module => ({ default: module.Pie })))
+const Cell = lazy(() => import('recharts').then(module => ({ default: module.Cell })))
+const BarChart = lazy(() => import('recharts').then(module => ({ default: module.BarChart })))
+const Bar = lazy(() => import('recharts').then(module => ({ default: module.Bar })))
+const XAxis = lazy(() => import('recharts').then(module => ({ default: module.XAxis })))
+const YAxis = lazy(() => import('recharts').then(module => ({ default: module.YAxis })))
+const CartesianGrid = lazy(() => import('recharts').then(module => ({ default: module.CartesianGrid })))
+const Tooltip = lazy(() => import('recharts').then(module => ({ default: module.Tooltip })))
+const ResponsiveContainer = lazy(() => import('recharts').then(module => ({ default: module.ResponsiveContainer })))
+const Legend = lazy(() => import('recharts').then(module => ({ default: module.Legend })))
+
+// Composant de chargement pour les graphiques
+const ChartLoader = () => (
+  <div className="flex items-center justify-center h-full">
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+  </div>
+)
 
 // Graphique camembert pour taux d'occupation
 export const OccupancyPieChart = memo(function OccupancyPieChart({ occupees, libres }) {
@@ -14,33 +33,35 @@ export const OccupancyPieChart = memo(function OccupancyPieChart({ occupees, lib
 
   return (
     <div className="relative">
-      <ResponsiveContainer width="100%" height={250}>
-        <PieChart>
-          <Pie
-            data={data}
-            cx="50%"
-            cy="50%"
-            innerRadius={60}
-            outerRadius={90}
-            paddingAngle={2}
-            dataKey="value"
-            animationBegin={0}
-            animationDuration={800}
-          >
-            {data.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={entry.color} />
-            ))}
-          </Pie>
-          <Tooltip
-            contentStyle={{
-              backgroundColor: '#fff',
-              border: '1px solid #E9ECEF',
-              borderRadius: '8px',
-              padding: '8px 12px'
-            }}
-          />
-        </PieChart>
-      </ResponsiveContainer>
+      <Suspense fallback={<ChartLoader />}>
+        <ResponsiveContainer width="100%" height={250}>
+          <PieChart>
+            <Pie
+              data={data}
+              cx="50%"
+              cy="50%"
+              innerRadius={60}
+              outerRadius={90}
+              paddingAngle={2}
+              dataKey="value"
+              animationBegin={0}
+              animationDuration={800}
+            >
+              {data.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={entry.color} />
+              ))}
+            </Pie>
+            <Tooltip
+              contentStyle={{
+                backgroundColor: '#fff',
+                border: '1px solid #E9ECEF',
+                borderRadius: '8px',
+                padding: '8px 12px'
+              }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+      </Suspense>
 
       {/* Texte central */}
       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
@@ -152,38 +173,40 @@ export const MonthlyRevenueChart = memo(function MonthlyRevenueChart({ data, sho
         )}
       </div>
 
-      <ResponsiveContainer width="100%" height={280}>
-        <BarChart data={data} margin={{ top: 10, right: 30, left: 20, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#E9ECEF" />
-          <XAxis
-            dataKey="mois"
-            tick={{ fill: '#6C757D', fontSize: 12 }}
-            axisLine={{ stroke: '#E9ECEF' }}
-          />
-          <YAxis
-            tick={{ fill: '#6C757D', fontSize: 12 }}
-            axisLine={{ stroke: '#E9ECEF' }}
-            tickFormatter={(value) => `${(value / 1000)}k`}
-          />
-          <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0, 184, 148, 0.1)' }} />
-          <Bar
-            dataKey="montant"
-            name="✅ Reçu"
-            fill="#00B894"
-            radius={[8, 8, 0, 0]}
-            animationBegin={0}
-            animationDuration={800}
-          />
-          <Bar
-            dataKey="attendu"
-            name="💵 Attendu"
-            fill="#E9ECEF"
-            radius={[8, 8, 0, 0]}
-            animationBegin={200}
-            animationDuration={800}
-          />
-        </BarChart>
-      </ResponsiveContainer>
+      <Suspense fallback={<ChartLoader />}>
+        <ResponsiveContainer width="100%" height={280}>
+          <BarChart data={data} margin={{ top: 10, right: 30, left: 20, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#E9ECEF" />
+            <XAxis
+              dataKey="mois"
+              tick={{ fill: '#6C757D', fontSize: 12 }}
+              axisLine={{ stroke: '#E9ECEF' }}
+            />
+            <YAxis
+              tick={{ fill: '#6C757D', fontSize: 12 }}
+              axisLine={{ stroke: '#E9ECEF' }}
+              tickFormatter={(value) => `${(value / 1000)}k`}
+            />
+            <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0, 184, 148, 0.1)' }} />
+            <Bar
+              dataKey="montant"
+              name="✅ Reçu"
+              fill="#00B894"
+              radius={[8, 8, 0, 0]}
+              animationBegin={0}
+              animationDuration={800}
+            />
+            <Bar
+              dataKey="attendu"
+              name="💵 Attendu"
+              fill="#E9ECEF"
+              radius={[8, 8, 0, 0]}
+              animationBegin={200}
+              animationDuration={800}
+            />
+          </BarChart>
+        </ResponsiveContainer>
+      </Suspense>
     </div>
   )
 })
@@ -191,10 +214,12 @@ export const MonthlyRevenueChart = memo(function MonthlyRevenueChart({ data, sho
 // Mini graphique sparkline pour évolution
 export const SparklineChart = memo(function SparklineChart({ data, color = '#1ABC9C' }) {
   return (
-    <ResponsiveContainer width="100%" height={60}>
-      <BarChart data={data}>
-        <Bar dataKey="value" fill={color} radius={[4, 4, 0, 0]} />
-      </BarChart>
-    </ResponsiveContainer>
+    <Suspense fallback={<ChartLoader />}>
+      <ResponsiveContainer width="100%" height={60}>
+        <BarChart data={data}>
+          <Bar dataKey="value" fill={color} radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </Suspense>
   )
 })

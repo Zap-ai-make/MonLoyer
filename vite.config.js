@@ -1,10 +1,11 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react-swc'
 import tailwindcss from '@tailwindcss/vite'
+// import reorderPreloadsPlugin from './vite-plugin-reorder-preloads.js' // DÉSACTIVÉ - causait des bugs HTML
 
 // Configuration Vite
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss()], // Plugin reorder désactivé
   base: '/',
   resolve: {
     // Forcer une seule instance de React/react-is/react-dom pour éviter les duplications
@@ -15,45 +16,24 @@ export default defineConfig({
     assetsDir: 'assets',
     target: 'es2015',
     sourcemap: false,
-    minify: 'esbuild',
+    minify: 'esbuild', // Minification activée pour production
     cssMinify: 'lightningcss',
+    // Désactiver le tree shaking agressif pour éviter les circular dependencies
+    modulePreload: {
+      polyfill: false
+    },
     rollupOptions: {
       output: {
         manualChunks(id) {
-          // Code splitting optimisé pour réduire le bundle initial
+          // Code splitting MINIMAL - ne séparer QUE recharts pour lazy loading
           if (id.includes('node_modules')) {
-            // Firebase (authentication, firestore, storage) - ~400KB
-            if (id.includes('firebase') || id.includes('@firebase')) {
-              return 'firebase'
-            }
-            // Recharts + react-redux dans le même chunk que react-vendor pour éviter les conflits
+            // ISOLER recharts - pour lazy loading
             if (id.includes('recharts') || id.includes('react-redux') || id.includes('@reduxjs/toolkit')) {
-              return 'react-vendor'
+              return 'recharts-isolated'
             }
-            // Google Maps - ~300KB
-            if (id.includes('@react-google-maps') || id.includes('googlemaps')) {
-              return 'google-maps'
-            }
-            // jsPDF (génération PDF) - ~200KB
-            if (id.includes('jspdf')) {
-              return 'jspdf'
-            }
-            // Zod (validation) - ~50KB
-            if (id.includes('zod')) {
-              return 'zod'
-            }
-            // React core (react, react-dom) - SANS react-router pour éviter les duplications
-            if (id.includes('react-dom')) {
-              return 'react-vendor'
-            }
-            if (id.includes('react') && !id.includes('react-router') && !id.includes('react-redux')) {
-              return 'react-vendor'
-            }
-            // React Router dans un chunk séparé
-            if (id.includes('react-router')) {
-              return 'react-router'
-            }
-            // Autres vendors (lucide-react, etc.)
+
+            // TOUT LE RESTE ensemble dans vendor (React + Firebase + jsPDF + lucide + zod + etc.)
+            // Cela évite les problèmes d'ordre de chargement
             return 'vendor'
           }
         },
@@ -75,11 +55,13 @@ export default defineConfig({
   },
   // Optimiser les dépendances
   optimizeDeps: {
-    include: ['react', 'react-dom', 'react-is', 'react-router-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
-    exclude: ['@react-google-maps/api'], // Lazy load Google Maps
+    include: ['react', 'react-dom', 'react-is', 'react-router-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'lucide-react'],
+    exclude: ['@react-google-maps/api', 'recharts'], // Lazy load: Google Maps, recharts
     esbuildOptions: {
       target: 'es2020'
-    }
+    },
+    // Force React à être pré-bundlé en premier
+    force: true
   },
   define: {
     global: 'globalThis'
