@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
 import { NotificationProvider } from './contexts/NotificationContext'
@@ -23,6 +23,12 @@ const Login = lazy(() => import('./pages/Login'))
 const Register = lazy(() => import('./pages/Register'))
 
 function App() {
+  // Log router type for debugging
+  useEffect(() => {
+    console.log('🔷 Router Type: HashRouter')
+    console.log('🔷 Current URL:', window.location.href)
+  }, [])
+
   return (
     <ErrorBoundary>
       <NotificationProvider>

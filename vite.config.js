@@ -47,9 +47,9 @@ export default defineConfig({
     // Optimisations de compression
     terserOptions: {
       compress: {
-        drop_console: true, // Supprimer tous les console.* en production
+        drop_console: false, // Garder console.log temporairement pour debug
         drop_debugger: true,
-        pure_funcs: ['console.log', 'console.info', 'console.debug']
+        pure_funcs: []
       }
     }
   },
